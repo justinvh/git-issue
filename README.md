@@ -13,10 +13,10 @@ Multiple hooks are created when you run git issue.
 Quick Run Down
 ==============
 
-    git issue --create
-    git issue --list
-    git issue --resolve
-    git issue --delete
+    git issue create
+    git issue list
+    git issue resolve
+    git issue delete
 
 
 Requirements
@@ -34,7 +34,7 @@ Creating an Issue
 
 Invokes `$EDITOR` and creates a new issue.
 
-    git issue --create
+    git issue create
     >> created issue 1 on branch master at commit 2fd4e1c6.
 
 The structure of creating `git issue` needs to follow one of the following
@@ -140,7 +140,7 @@ Resolving an Issue Automatically
 
 By default you can mark an issue resolved by simply running:
 
-    git issue --resolve
+    git issue resolve
 
 `resolve` will look at the git log history for the last commit that follows
 a particular pattern implying a resolved issue. For example, if your last
@@ -165,14 +165,14 @@ If an issue can not be resolved from a commit, then `git issue` will let you
 know and verify your action. For example: we create an issue #1, but not
 issue #2, then the following would happen:
 
-    git issue --resolve
+    git issue resolve
     >> Failed to resolve issue #2 on branch master at commit 2fd4e1c6.
     >> Do you want to continue (y/n): y
     >> Creating tag issue-1-resolved at 2fd4e1c6.
 
 Alternatively if no issues can be found, then the following happens:
 
-    git issue --resolve
+    git issue resolve
     >> No issues can be found.
 
 
@@ -181,7 +181,7 @@ Resolving an Issue Manually
 
 You can resolve an issue by just specifying the issue number and the commit.
 
-    git issue --resolve --id 1 --commit 2fd4e1c6
+    git issue resolve --id 1 --commit 2fd4e1c6
     >> Creating tag issue-1-resolved at 2fd4e1c6.
 
 You can specify multiple `--id` with a single `--commit`.
@@ -190,36 +190,36 @@ Looking at Issues
 -----------------
 
     # lists all unresolved issues
-    git issue --list
+    git issue list
     >> Issue #1 - A short description of issue #1 {milestone} [tag] [foo]
     >> Issue #2 - A short description of issue #2 {milestone} {milestone} [bar]
     >> Issue #3 - A short description of issue #3
 
 
     # lists all unresolved issues with the tag "foo"
-    git issue --list --tag foo
+    git issue list --tag foo
     >> Issue #1 - A short description of issue #1 {milestone} [tag] [foo]
 
 
     # lists all unresolved issues with the tag "bar" and milestone "milestone"
-    git issue --list --tag bar --milestone "milestone"
+    git issue list --tag bar --milestone "milestone"
     >> Issue #2 - A short description of issue #2 {milestone} {milestone} [bar]
 
 
     # lists all unresolved issues
-    git issue --list --unresolved
+    git issue list --unresolved
     >> Issue #1 - A short description of issue #1 {milestone} [tag] [foo]
     >> Issue #2 - A short description of issue #2 {milestone} {milestone} [bar]
     >> Issue #3 - A short description of issue #3
 
 
     # lists all resolved issues
-    git issue --list --resolved
+    git issue list resolved
     >> Issue #4 - A short description of issue #4 {milestone} [tag] [foo]
 
 
     # lists all issues assigned to a certain user
-    git issue --list --assign "justinvh@gmail.com"
+    git issue list --assign "justinvh@gmail.com"
     >> Issue #1 - A short description of issue #1 {milestone} [tag] [foo]
     >> Issue #2 - A short description of issue #2 {milestone} {milestone} [bar]
     >> Issue #3 - A short description of issue #3
@@ -228,7 +228,7 @@ Looking at Issues
 Deleting an issue
 -----------------
 
-    git issue --delete --id 1
+    git issue delete --id 1
     >> Deleting issue:
     >>
     >> Issue #1 - A short description of issue #1 {milestone} [tag] [foo]

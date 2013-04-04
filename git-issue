@@ -1,0 +1,123 @@
+#!/usr/bin/env python
+'''git-issue is a stupid issue tracking module for Git.
+
+'''
+import argparse
+import logging
+
+logger_name = 'git-issue' if __name__ == '__main__' else __name__
+logging.basicConfig(format='%(message)s')
+logger = logging.getLogger(logger_name)
+logger.setLevel(logging.INFO)
+
+def issue_create(args):
+    '''Creates a new issue.
+
+    '''
+    logger.info('creating an issue')
+
+def issue_list(args):
+    '''Lists creates issues.
+
+    '''
+
+def issue_resolve(args):
+    '''Resolves created issues.
+
+    '''
+
+def issue_delete(args):
+    '''Deletes an issue.
+
+    '''
+
+def argument_create():
+    '''Provides some organizational qualities to the argument parsing
+    for git-issue.
+
+    '''
+    parser = argparse.ArgumentParser(prog='git issue')
+    cmd = parser.add_subparsers(title='Available git-issue actions')
+
+    def argument_create():
+        '''Arguments pertaining to creating an issue
+
+        '''
+        option = cmd.add_parser('create', help='create a new issue')
+        option.add_argument('-s', '--stdin',
+                            action='store_true',
+                            help='Read issue message from stdin')
+        option.set_defaults(func=issue_create)
+
+
+    def argument_list():
+        '''Arguments pertaining to listing issues.
+
+        '''
+        option = cmd.add_parser('list', help='list available issues')
+        option.add_argument('-i', '--id',
+                            help='list only with a certain id',
+                            type=int)
+
+        option.add_argument('-t', '--tag',
+                            help='list only by a certain tag',
+                            action='append')
+
+        option.add_argument('-m', '--milestone',
+                            help='list only by a certain milestone',
+                            action='append')
+
+        option.add_argument('-a', '--assign',
+                            help='list only by a certain user',
+                            action='append')
+
+        mutual_group = option.add_mutually_exclusive_group()
+
+        mutual_group.add_argument('-u', '--unresolved',
+                                help='list only unresolved issues',
+                                default=True,
+                                action='store_true')
+
+        mutual_group.add_argument('-r', '--resolved',
+                                default=False,
+                                help='list only resolved issues',
+                                action='store_true')
+
+        option.set_defaults(func=issue_list)
+
+    def argument_resolve():
+        '''Arguments pertaining to resolving an issue.
+
+        '''
+        option = cmd.add_parser('resolve', help='resolve an issue')
+        option.set_defaults(func=issue_resolve)
+
+        option = cmd.add_parser('delete', help='delete an issue')
+        option.set_defaults(func=issue_delete)
+
+    def argument_general():
+        '''Arguments pertaining to general use of git-issue.
+
+        '''
+        parser.add_argument('-q', '--quiet',
+                            action='store_true',
+                            help='supress all output')
+
+        parser.add_argument('-v', '--verbose',
+                            action='store_true',
+                            help='enable debugging output')
+
+    argument_create()
+    argument_list()
+    argument_resolve()
+    argument_general()
+
+    return parser
+
+if __name__ == '__main__':
+    try:
+        parser = argument_create()
+        args = parser.parse_args()
+        args.func(args)
+    except AttributeError:
+        parser.print_help()

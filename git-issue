@@ -2,19 +2,110 @@
 '''git-issue is a stupid issue tracking module for Git.
 
 '''
+from collections import namedtuple
+import time
 import argparse
 import logging
+import subprocess
 
 logger_name = 'git-issue' if __name__ == '__main__' else __name__
 logging.basicConfig(format='%(message)s')
 logger = logging.getLogger(logger_name)
 logger.setLevel(logging.INFO)
 
+ISSUE_LIST_FILE = 'ISSUE_LIST'
+ISSUE_TEMPLATE = """
+# Anything below this line will be ignored.
+# The ideal structure of a message looks like:
+#
+#  Capitalized, short (50 chars or less) summary
+#
+#   Milestone: milestone1 milestone2
+#
+#   Tag: tag1 tag2 tag3
+#
+#   Assign: Justin Bruce Van Horne <justinvh@gmail.com>
+#
+#   More detailed explanatory text, if necessary.  Wrap it to about 72
+#   characters or so.  In some contexts, the first line is treated as the
+#   subject of an email and the rest of the text as the body.  The blank
+#   line separating the summary from the body is critical (unless you omit
+#   the body entirely);
+"""
+
+Issue = namedtuple('Issue', ['num', 'commit', 'branch', 'created'])
+
+def git(*args, **kwargs):
+    """A wrapper around subprocessing git. If you have sh installed in your
+    base Python site-packages, then you should be able to just ad-hoc replace
+    this.
+    """
+    command = ['git'] + list(args)
+    return subprocess.check_output(command)[0:-1]
+
 def issue_create(args):
     '''Creates a new issue.
 
     '''
-    logger.info('creating an issue')
+    import os
+    # Create the issue directory if necessary
+    repository_dir = git('rev-parse', '--show-toplevel')
+    issue_dir = os.sep.join([repository_dir, args.issue_dir])
+    if not os.path.exists(issue_dir):
+        logger.info('Creating {}'.format(issue_dir))
+        os.makedirs(issue_dir)
+
+    # Try to figure out which issue this is going to be
+    issue_count = 1
+    issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
+    if os.path.exists(issue_list_file):
+        with open(issue_list_file) as issue_list:
+            lines = issue_list.read().splitlines()
+            lines = [Issue._make(line.split()) for line in lines]
+            issue_numbered = sorted([int(x.num) for x in lines])
+            issue_count = issue_numbered[-1] + 1
+
+    # Write the issue template
+    issue_file = os.sep.join([issue_dir, str(issue_count)])
+    with open(issue_file, 'w') as issue:
+        issue.write(ISSUE_TEMPLATE)
+
+    # Invoke the editor and open the issue file
+    ret = subprocess.call([os.environ.get('EDITOR'), issue_file])
+    if ret != 0:
+        print('Aborting issue due to empty issue message.')
+        return
+
+    # Read what the issue was and check if it was empty.
+    valid_issue = ''
+    with open(issue_file) as issue:
+        lines = issue.read().strip().splitlines()
+        valid_lines = [x for x in lines if not x.startswith('#')]
+        if not valid_lines:
+            os.remove(issue_file)
+            print('Aborting issue due to empty issue message.')
+            return
+        valid_issue = '\n'.join(valid_lines)
+
+    # Write the cleaned up issue
+    with open(issue_file, 'w') as issue:
+        issue.write(valid_issue)
+
+    # Get the commit details
+    current_commit = git('rev-parse', '--verify', 'HEAD')
+    current_branch = git('rev-parse', '--abbrev-ref', 'HEAD')
+    created = int(time.time())
+    issue = Issue(issue_count, current_commit, current_branch, created)
+
+    # Write the issue number into a list
+    with open(issue_list_file, 'a') as issue_file:
+        msg = '{} {} {} {}\n'.format(issue.num, issue.commit,
+                                     issue.branch, issue.created)
+        issue_file.write(msg)
+
+    msg = 'created issue {} on branch {} at commit {}.'
+    print(msg.format(issue.num, issue.branch, issue.commit))
+
 
 def issue_list(args):
     '''Lists creates issues.
@@ -107,6 +198,11 @@ def argument_create():
                             action='store_true',
                             help='enable debugging output')
 
+        parser.add_argument('--issue-dir',
+                            action='store',
+                            default='.git-issue',
+                            help='alternatively specify a git-issue directory')
+
     argument_create()
     argument_list()
     argument_resolve()
@@ -119,5 +215,6 @@ if __name__ == '__main__':
         parser = argument_create()
         args = parser.parse_args()
         args.func(args)
-    except AttributeError:
+    except AttributeError as e:
+        logger.info(e)
         parser.print_help()

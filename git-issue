@@ -3,18 +3,20 @@
 
 '''
 from collections import namedtuple
+import os
 import time
 import argparse
 import logging
 import subprocess
 import sys
+import json
 
 logger_name = 'git-issue' if __name__ == '__main__' else __name__
 logging.basicConfig(format='%(message)s')
 logger = logging.getLogger(logger_name)
 logger.setLevel(logging.INFO)
 
-ISSUE_LIST_FILE = 'ISSUE_LIST'
+ISSUE_LIST_FILE = 'issues'
 ISSUE_TEMPLATE = """
 # Anything below this line will be ignored.
 # The ideal structure of a message looks like:
@@ -36,55 +38,112 @@ ISSUE_TEMPLATE = """
 
 Issue = namedtuple('Issue', ['num', 'commit', 'branch', 'created'])
 
-def git(*args, **kwargs):
-    """A wrapper around subprocessing git. If you have sh installed in your
-    base Python site-packages, then you should be able to just ad-hoc replace
-    this.
-    """
-    try:
-        command = ['git'] + list(args)
-        print(' '.join(command))
-        return subprocess.check_output(command, stderr=subprocess.STDOUT)[0:-1]
-    except subprocess.CalledProcessError as e:
-        return e.output
+
+def chunks(l, n):
+    for i in xrange(0, len(l), n):
+        yield l[i:i+n]
+
+
+class Git:
+    @staticmethod
+    def stash():
+        return Git.command('stash')
+
+    @staticmethod
+    def stash_pop():
+        return Git.command('stash', 'pop')
+
+    @staticmethod
+    def branch():
+        return Git.command('rev-parse', '--abbrev-ref', 'HEAD')
+
+    @staticmethod
+    def branch_create(name, orphan=False):
+        if orphan:
+            return Git.command("checkout", "--orphan", name)
+        return Git.command("checkout", "-b", name)
+
+    @staticmethod
+    def branch_checkout(name):
+        return Git.command("checkout", name)
+
+    @staticmethod
+    def branch_delete(name):
+        return Git.command("branch", "-D", name)
+
+    @staticmethod
+    def branch_exists(name):
+        msg = Git.command("show-ref", "--verify", "refs/heads/{}".format(name))
+        return 'fatal' not in msg
+
+    @staticmethod
+    def rm(what, recursive=False):
+        if recursive:
+            return Git.command('rm', '-rf', what)
+        return Git.command('rm', what)
+
+    @staticmethod
+    def commit_exists():
+        return "fatal" not in Git.command('rev-list', 'HEAD')
+
+    @staticmethod
+    def commit(filename=None, from_file=None, from_message=None):
+        if filename is None:
+            return Git.command('rev-parse', '--verify', 'HEAD')
+        if from_file:
+            return Git.command('commit', filename, '-F', from_file)
+        elif from_message:
+            return Git.command('commit', filename, '-m', from_message)
+
+    @staticmethod
+    def repository():
+        return Git.command('rev-parse', '--show-toplevel')
+
+    @staticmethod
+    def add(what):
+        return Git.command('add', what)
+
+    @staticmethod
+    def command(*args, **kwargs):
+        try:
+            command = ['git'] + list(args)
+            print(' '.join(command))
+            return subprocess.check_output(
+                command, stderr=subprocess.STDOUT)[0:-1]
+        except subprocess.CalledProcessError as e:
+            return e.output
+
 
 def issue_create(args):
     '''Creates a new issue.
 
     '''
-    import os
-
-    current_branch = git('symbolic-ref', 'HEAD').split('/')[-1]
-    current_commit = git('rev-parse', '--verify', 'HEAD')
+    current_branch = Git.branch()
+    current_commit = Git.commit()
     if not os.environ.get('EDITOR'):
         sys.exit('EDITOR is not set in your environment. Please set it.')
 
     # Check if the git-issues branch exists.
-    branch = git("show-ref", "--verify", "refs/heads/git-issues")
-    repository_dir = git('rev-parse', '--show-toplevel')
-    issue_dir = os.sep.join([repository_dir, args.issue_dir])
-    if "fatal" in branch:
+    issue_branch_exists = Git.branch_exists('git-issues')
+    repository_dir = Git.repository()
+    issue_dir = repository_dir
+    if not issue_branch_exists:
         # Create the issue directory if necessary
         logger.info("Creating git-issue branch")
-        git("checkout", "--orphan", "git-issues")
-        logger.info('Creating {}'.format(issue_dir))
-        git('rm', '-rf', '.')
+        Git.branch_create('git-issues', orphan=True)
+        Git.rm(".", recursive=True)
     else:
-        git('checkout', 'git-issues')
-
-    # Create the issue directory
-    if not os.path.exists(issue_dir):
-            os.makedirs(issue_dir)
+        Git.branch_checkout("git-issues")
 
     # Try to figure out which issue this is going to be
-    issue_count = 1
+    issues = []
+    issue_count = 0
     issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
     if os.path.exists(issue_list_file):
-        with open(issue_list_file) as issue_list:
-            lines = issue_list.read().splitlines()
-            lines = [Issue._make(line.split()) for line in lines]
-            issue_numbered = sorted([int(x.num) for x in lines])
-            issue_count = issue_numbered[-1] + 1
+        issues = json.load(open(issue_list_file))
+        for issue in issues:
+            issue_count = max(issue['num'], issue_count)
+    issue_count += 1
 
     # Write the issue template
     issue_file = os.sep.join([issue_dir, str(issue_count)])
@@ -97,6 +156,10 @@ def issue_create(args):
         print('Aborting issue due to empty issue message.')
         return
 
+    milestones = []
+    tags = []
+    assigned = []
+
     # Read what the issue was and check if it was empty.
     valid_issue = ''
     with open(issue_file) as issue:
@@ -106,6 +169,16 @@ def issue_create(args):
             os.remove(issue_file)
             print('Aborting issue due to empty issue message.')
             return
+
+        for line in valid_lines:
+            # Break the milestones
+            lowered = line.lower()
+            if lowered.startswith('milestone:'):
+                milestones = line[10:].split()
+            elif lowered.startswith('tag:'):
+                tags = line[4:].split()
+            elif lowered.startswith('assign:'):
+                assigned.append(line[7:])
         valid_issue = '\n'.join(valid_lines)
 
     # Write the cleaned up issue
@@ -115,18 +188,19 @@ def issue_create(args):
 
     # Get the commit details
     created = int(time.time())
-    issue = Issue(issue_count, current_commit, current_branch, created)
-
-    # Write the issue number into a list
-    with open(issue_list_file, 'a') as issue_file:
-        msg = '{} {} {} {}\n'.format(issue.num, issue.commit,
-                                     issue.branch, issue.created)
-        issue_file.write(msg)
+    issues.append({'num': issue_count,
+                   'commit': current_commit,
+                   'branch': current_branch,
+                   'created': str(created),
+                   'milestones': milestones,
+                   'tags': tags,
+                   'assigned': assigned})
+    json.dump(issues, open(issue_list_file, 'w'), indent=4)
 
     msg = 'created issue {} on branch {} at commit {}.'
-    msg = msg.format(issue.num, issue.branch, issue.commit)
-    git('add', issue_dir)
-    git('commit', issue_dir, '-F', issue_filename)
+    msg = msg.format(issue_count, current_branch, current_commit)
+    Git.add(issue_dir)
+    Git.commit(issue_dir, from_file=issue_filename)
     print(msg)
 
 
@@ -221,11 +295,6 @@ def argument_create():
                             action='store_true',
                             help='enable debugging output')
 
-        parser.add_argument('--issue-dir',
-                            action='store',
-                            default='.git-issue',
-                            help='alternatively specify a git-issue directory')
-
     argument_create()
     argument_list()
     argument_resolve()
@@ -233,9 +302,15 @@ def argument_create():
 
     return parser
 
+
 if __name__ == '__main__':
-    current_branch = git('rev-parse', '--abbrev-ref', 'HEAD')
+    if not Git.commit_exists():
+        sys.exit('Issues can not be created without a HEAD')
+
+    Git.stash()
+    current_branch = Git.branch()
     logger.info('Current branch is {}'.format(current_branch))
+
     try:
         parser = argument_create()
         args = parser.parse_args()
@@ -244,4 +319,5 @@ if __name__ == '__main__':
         logger.info(e)
         parser.print_help()
     finally:
-        git('checkout', current_branch)
+        Git.branch_checkout(current_branch)
+        Git.stash_pop()

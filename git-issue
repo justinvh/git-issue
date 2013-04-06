@@ -7,6 +7,7 @@ import time
 import argparse
 import logging
 import subprocess
+import sys
 
 logger_name = 'git-issue' if __name__ == '__main__' else __name__
 logging.basicConfig(format='%(message)s')
@@ -40,20 +41,40 @@ def git(*args, **kwargs):
     base Python site-packages, then you should be able to just ad-hoc replace
     this.
     """
-    command = ['git'] + list(args)
-    return subprocess.check_output(command)[0:-1]
+    try:
+        command = ['git'] + list(args)
+        print(' '.join(command))
+        return subprocess.check_output(command, stderr=subprocess.STDOUT)[0:-1]
+    except subprocess.CalledProcessError as e:
+        return e.output
 
 def issue_create(args):
     '''Creates a new issue.
 
     '''
     import os
-    # Create the issue directory if necessary
+
+    current_branch = git('symbolic-ref', 'HEAD').split('/')[-1]
+    current_commit = git('rev-parse', '--verify', 'HEAD')
+    if not os.environ.get('EDITOR'):
+        sys.exit('EDITOR is not set in your environment. Please set it.')
+
+    # Check if the git-issues branch exists.
+    branch = git("show-ref", "--verify", "refs/heads/git-issues")
     repository_dir = git('rev-parse', '--show-toplevel')
     issue_dir = os.sep.join([repository_dir, args.issue_dir])
-    if not os.path.exists(issue_dir):
+    if "fatal" in branch:
+        # Create the issue directory if necessary
+        logger.info("Creating git-issue branch")
+        git("checkout", "--orphan", "git-issues")
         logger.info('Creating {}'.format(issue_dir))
-        os.makedirs(issue_dir)
+        git('rm', '-rf', '.')
+    else:
+        git('checkout', 'git-issues')
+
+    # Create the issue directory
+    if not os.path.exists(issue_dir):
+            os.makedirs(issue_dir)
 
     # Try to figure out which issue this is going to be
     issue_count = 1
@@ -88,12 +109,11 @@ def issue_create(args):
         valid_issue = '\n'.join(valid_lines)
 
     # Write the cleaned up issue
+    issue_filename = issue_file
     with open(issue_file, 'w') as issue:
         issue.write(valid_issue)
 
     # Get the commit details
-    current_commit = git('rev-parse', '--verify', 'HEAD')
-    current_branch = git('rev-parse', '--abbrev-ref', 'HEAD')
     created = int(time.time())
     issue = Issue(issue_count, current_commit, current_branch, created)
 
@@ -104,7 +124,10 @@ def issue_create(args):
         issue_file.write(msg)
 
     msg = 'created issue {} on branch {} at commit {}.'
-    print(msg.format(issue.num, issue.branch, issue.commit))
+    msg = msg.format(issue.num, issue.branch, issue.commit)
+    git('add', issue_dir)
+    git('commit', issue_dir, '-F', issue_filename)
+    print(msg)
 
 
 def issue_list(args):
@@ -211,6 +234,8 @@ def argument_create():
     return parser
 
 if __name__ == '__main__':
+    current_branch = git('rev-parse', '--abbrev-ref', 'HEAD')
+    logger.info('Current branch is {}'.format(current_branch))
     try:
         parser = argument_create()
         args = parser.parse_args()
@@ -218,3 +243,5 @@ if __name__ == '__main__':
     except AttributeError as e:
         logger.info(e)
         parser.print_help()
+    finally:
+        git('checkout', current_branch)

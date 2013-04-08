@@ -2,8 +2,10 @@
 '''git-issue is a stupid issue tracking module for Git.
 
 '''
+from __future__ import unicode_literals
 from collections import namedtuple
-from itertools import izip_longest
+from io import open
+
 import os
 import time
 import argparse
@@ -11,6 +13,11 @@ import logging
 import subprocess
 import sys
 import json
+
+try:
+    from itertools import zip_longest
+except ImportError:
+    from itertools import izip_longest as zip_longest
 
 logger_name = 'git-issue' if __name__ == '__main__' else __name__
 logging.basicConfig(format='%(message)s')
@@ -42,7 +49,7 @@ Issue = namedtuple('Issue', ['resolved', 'milestones', 'tags', 'created',
 
 
 def chunks(l, n):
-    for i in xrange(0, len(l), n):
+    for i in range(0, len(l), n):
         yield l[i:i+n]
 
 
@@ -57,7 +64,7 @@ class Git:
 
     @staticmethod
     def branch():
-        return Git.command('rev-parse', '--abbrev-ref', 'HEAD')
+        return Git.command('rev-parse', '--abbrev-ref', 'HEAD')[0]
 
     @staticmethod
     def branch_create(name, orphan=False):
@@ -91,7 +98,7 @@ class Git:
     @staticmethod
     def commit(filename=None, from_file=None, from_message=None):
         if filename is None:
-            return Git.command('rev-parse', '--verify', 'HEAD')
+            return Git.command('rev-parse', '--verify', 'HEAD')[0]
         if from_file:
             return Git.command('commit', filename, '-F', from_file)
         elif from_message:
@@ -99,7 +106,7 @@ class Git:
 
     @staticmethod
     def repository():
-        return Git.command('rev-parse', '--show-toplevel')
+        return Git.command('rev-parse', '--show-toplevel')[0]
 
     @staticmethod
     def add(what):
@@ -110,8 +117,9 @@ class Git:
         try:
             command = ['git'] + list(args)
             logger.debug(' '.join(command))
-            return subprocess.check_output(
-                command, stderr=subprocess.STDOUT)[0:-1]
+            msg = subprocess.check_output(command, stderr=subprocess.STDOUT)
+            msg = msg.decode('utf-8')
+            return msg.splitlines()
         except subprocess.CalledProcessError as e:
             return e.output
 
@@ -293,12 +301,12 @@ def issue_list(args):
 
     # Create a structure for tabulating the data
     ignored = ['description', 'num', 'commit', 'branch', 'resolved', 'created']
-    key_size = len(results[0].keys()) - len(ignored)
+    key_size = len(list(results[0].keys())) - len(ignored)
     table_format = '{:^19} ' * key_size
-    newline = u'\u2500' * 20 * key_size
+    newline = '-' * 20 * key_size
 
     # Remove the description from the key-list
-    keys = issues[0].keys()
+    keys = list(issues[0].keys())
     for ignore in ignored:
         keys.remove(ignore)
 
@@ -313,7 +321,7 @@ def issue_list(args):
 
         # In short-description mode we can bail early
         if args.short:
-            print
+            print()
             continue
 
         # delete the used keys
@@ -332,7 +340,7 @@ def issue_list(args):
 
         # The data will be displayed in multiple-rows, so we will need to
         # fill the empty columns with a placeholder
-        zipped = list(izip_longest(milestones, tags, assigned, fillvalue='-'))
+        zipped = list(zip_longest(milestones, tags, assigned, fillvalue='-'))
 
         # In the case we don't have tags, milestones, or an assigned user
         # So, just fill with the placeholder text
@@ -340,7 +348,7 @@ def issue_list(args):
             issue['milestones'] = '-'
             issue['tags'] = '-'
             issue['assigned'] = '-'
-            print(table_format.format(*issue.values()))
+            print(table_format.format(*list(issue.values())))
             print(newline)
             print('')
             continue
@@ -350,7 +358,7 @@ def issue_list(args):
             issue['milestones'] = m
             issue['tags'] = t
             issue['assigned'] = a[:16] + ('...' if len(a) > 16 else '')
-            print(table_format.format(*issue.values()))
+            print(table_format.format(*list(issue.values())))
 
         print(newline)
         print('')

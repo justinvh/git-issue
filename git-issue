@@ -3,6 +3,7 @@
 
 '''
 from collections import namedtuple
+from itertools import izip_longest
 import os
 import time
 import argparse
@@ -36,7 +37,8 @@ ISSUE_TEMPLATE = """
 #   the body entirely);
 """
 
-Issue = namedtuple('Issue', ['num', 'commit', 'branch', 'created'])
+Issue = namedtuple('Issue', ['resolved', 'milestones', 'tags', 'created',
+                             'assigned', 'num', 'branch', 'commit'])
 
 
 def chunks(l, n):
@@ -107,7 +109,7 @@ class Git:
     def command(*args, **kwargs):
         try:
             command = ['git'] + list(args)
-            print(' '.join(command))
+            logger.debug(' '.join(command))
             return subprocess.check_output(
                 command, stderr=subprocess.STDOUT)[0:-1]
         except subprocess.CalledProcessError as e:
@@ -194,7 +196,10 @@ def issue_create(args):
                    'created': str(created),
                    'milestones': milestones,
                    'tags': tags,
-                   'assigned': assigned})
+                   'description': valid_issue[:80],
+                   'assigned': assigned,
+                   'resolved_in': False,
+                   'resolved': False})
     json.dump(issues, open(issue_list_file, 'w'), indent=4)
 
     msg = 'created issue {} on branch {} at commit {}.'
@@ -208,6 +213,145 @@ def issue_list(args):
     '''Lists creates issues.
 
     '''
+    # By default we have to ensure that the git-issue branch even exists
+    issue_branch_exists = Git.branch_exists('git-issues')
+    if not issue_branch_exists:
+        sys.exit('No issues has been created.')
+
+    # Verify that an issue list even exists
+    Git.branch_checkout("git-issues")
+    repository_dir = Git.repository()
+    issue_dir = repository_dir
+    issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
+    if not os.path.exists(issue_list_file):
+        sys.exit('No issues exist.')
+
+    # Load the issues
+    issues = json.load(open(issue_list_file))
+    results = [[i for i, _ in enumerate(issues)]]
+
+    # Gather all the resolved issues
+    if args.resolved:
+        temp_results = []
+        for i, issue in enumerate(issues):
+            if issue['resolved']:
+                temp_results.append(i)
+        results.append(temp_results)
+
+    # Gather all the issues specified by ID
+    ids = args.id
+    if ids:
+        temp_results = []
+        for i, issue in enumerate(issues):
+            if issue['num'] in ids:
+                temp_results.append(i)
+        results.append(temp_results)
+
+    # Gather all the issues specified with a certain tag
+    tags = set(args.tag)
+    if tags:
+        temp_results = []
+        for i, issue in enumerate(issues):
+            if set(issue['tags']) & tags:
+                temp_results.append(i)
+        results.append(temp_results)
+
+    # Gather all the issues specified with a certain milestone
+    milestone = set(args.milestone)
+    if milestone:
+        temp_results = []
+        for i, issue in enumerate(issues):
+            if set(issue['milestones']) & milestone:
+                temp_results.append(i)
+        results.append(temp_results)
+
+    # Check the assign-list vs the issue users with a find()
+    assigned = args.assign
+    if assigned:
+        temp_results = []
+        for i, issue in enumerate(issues):
+            for user in issue['assigned']:
+                user = user.lower()
+                for assign in assigned:
+                    assign = assign.lower()
+                    if user.find(assign) != -1:
+                        temp_results.append(i)
+                        break
+                else:
+                    continue
+                break
+        results.append(temp_results)
+
+    # Find the intersection of the results
+    temp_results = set(results[0])
+    for result in results[1:]:
+        temp_results &= set(result)
+    results = [issues[i] for i in temp_results]
+
+    if not results:
+        return
+
+    # Create a structure for tabulating the data
+    ignored = ['description', 'num', 'commit', 'branch', 'resolved', 'created']
+    key_size = len(results[0].keys()) - len(ignored)
+    table_format = '{:^19} ' * key_size
+    newline = u'\u2500' * 26 * key_size
+
+    # Remove the description from the key-list
+    keys = issues[0].keys()
+    for ignore in ignored:
+        keys.remove(ignore)
+
+    for issue in results:
+        # Store the current data so we can print it on multiple
+        # rows, but under the same issue.
+        resolved_text = 'resolved' if issue['resolved'] else 'unresolved'
+        issue_args = (issue['num'], resolved_text, issue['branch'],
+                      issue['commit'][:5], issue['created'])
+        print('Issue #{} {} on {}/{}. Created on {}.'.format(*issue_args))
+        print(issue['description'].replace('\n', ' '))
+
+        # In short-description mode we can bail early
+        if args.short:
+            print
+            continue
+
+        # delete the used keys
+        for ignore in ignored:
+            del issue[ignore]
+
+        # Print the headers
+        print(newline)
+        print(table_format.format(*keys))
+        print(newline)
+
+        # Grab the iterables up-front
+        milestones = issue['milestones']
+        tags = issue['tags']
+        assigned = issue['assigned']
+
+        # The data will be displayed in multiple-rows, so we will need to
+        # fill the empty columns with a placeholder
+        zipped = list(izip_longest(milestones, tags, assigned, fillvalue='-'))
+
+        # In the case we don't have tags, milestones, or an assigned user
+        # So, just fill with the placeholder text
+        if not zipped:
+            issue['milestones'] = '-'
+            issue['tags'] = '-'
+            issue['assigned'] = '-'
+            print(table_format.format(*issue.values()))
+            continue
+
+        # Break each row for the milestones, tags, and assigned
+        for m, t, a in zipped:
+            issue['milestones'] = m
+            issue['tags'] = t
+            issue['assigned'] = a[:16] + ('...' if len(a) > 16 else '')
+            print(table_format.format(*issue.values()))
+
+        print(newline)
+
 
 def issue_resolve(args):
     '''Resolves created issues.
@@ -245,31 +389,33 @@ def argument_create():
         option = cmd.add_parser('list', help='list available issues')
         option.add_argument('-i', '--id',
                             help='list only with a certain id',
-                            type=int)
+                            default=[],
+                            type=int,
+                            action='append')
 
         option.add_argument('-t', '--tag',
                             help='list only by a certain tag',
+                            default=[],
                             action='append')
 
         option.add_argument('-m', '--milestone',
                             help='list only by a certain milestone',
+                            default=[],
                             action='append')
 
         option.add_argument('-a', '--assign',
                             help='list only by a certain user',
+                            default=[],
                             action='append')
 
-        mutual_group = option.add_mutually_exclusive_group()
+        option.add_argument('-s', '--short',
+                            help='short list',
+                            action='store_true')
 
-        mutual_group.add_argument('-u', '--unresolved',
-                                help='list only unresolved issues',
-                                default=True,
-                                action='store_true')
-
-        mutual_group.add_argument('-r', '--resolved',
-                                default=False,
-                                help='list only resolved issues',
-                                action='store_true')
+        option.add_argument('-r', '--resolved',
+                            default=False,
+                            help='list only resolved issues',
+                            action='store_true')
 
         option.set_defaults(func=issue_list)
 
@@ -309,7 +455,7 @@ if __name__ == '__main__':
 
     Git.stash()
     current_branch = Git.branch()
-    logger.info('Current branch is {}'.format(current_branch))
+    logger.debug('Current branch is {}'.format(current_branch))
 
     try:
         parser = argument_create()

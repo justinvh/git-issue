@@ -189,40 +189,105 @@ You can specify multiple `--id` with a single `--commit`.
 Looking at Issues
 -----------------
 
-    # lists all unresolved issues
-    git issue list
-    >> Issue #1 - A short description of issue #1 {milestone} [tag] [foo]
-    >> Issue #2 - A short description of issue #2 {milestone} {milestone} [bar]
-    >> Issue #3 - A short description of issue #3
+lists all unresolved issues
+
+    $ git issue list
+
+    Issue #2 unresolved on master/85d65. Created on 1365278151.
+    This is a test description under 80 chars
+    ──────────────────────────────────────────────────────────────────────────
+        milestones             tags              assigned
+    ──────────────────────────────────────────────────────────────────────────
+          release            problems        Justin Bruce Va...
+      release-holders            -           Bruce Van Horne...
+             -                   -           Justin Van Horn...
+    ──────────────────────────────────────────────────────────────────────────
 
 
-    # lists all unresolved issues with the tag "foo"
-    git issue list --tag foo
-    >> Issue #1 - A short description of issue #1 {milestone} [tag] [foo]
+lists all unresolved issues with the tag "foo"
+
+    $ git issue list --tag foo
+
+    Issue #2 unresolved on master/85d65. Created on 1365278151.
+    This is a test description under 80 chars
+    ──────────────────────────────────────────────────────────────────────────
+        milestones             tags              assigned
+    ──────────────────────────────────────────────────────────────────────────
+          release            problems        Justin Bruce Va...
+      release-holders            -           Bruce Van Horne...
+             -                   -           Justin Van Horn...
+    ──────────────────────────────────────────────────────────────────────────
 
 
-    # lists all unresolved issues with the tag "bar" and milestone "milestone"
-    git issue list --tag bar --milestone "milestone"
-    >> Issue #2 - A short description of issue #2 {milestone} {milestone} [bar]
+lists all unresolved issues with the tag "bar" and milestone "milestone"
+
+    $ git issue list --tag bar --milestone "milestone"
+
+    Issue #2 unresolved on master/85d65. Created on 1365278151.
+    This is a test description under 80 chars
+    ──────────────────────────────────────────────────────────────────────────
+        milestones             tags              assigned
+    ──────────────────────────────────────────────────────────────────────────
+          release            problems        Justin Bruce Va...
+      release-holders            -           Bruce Van Horne...
+             -                   -           Justin Van Horn...
+    ──────────────────────────────────────────────────────────────────────────
 
 
-    # lists all unresolved issues
-    git issue list --unresolved
-    >> Issue #1 - A short description of issue #1 {milestone} [tag] [foo]
-    >> Issue #2 - A short description of issue #2 {milestone} {milestone} [bar]
-    >> Issue #3 - A short description of issue #3
+lists all unresolved issues
+
+    $ git issue list --unresolved
+
+    Issue #2 unresolved on master/85d65. Created on 1365278151.
+    This is a test description under 80 chars
+    ──────────────────────────────────────────────────────────────────────────
+        milestones             tags              assigned
+    ──────────────────────────────────────────────────────────────────────────
+          release            problems        Justin Bruce Va...
+      release-holders            -           Bruce Van Horne...
+             -                   -           Justin Van Horn...
+    ──────────────────────────────────────────────────────────────────────────
+
+    Issue #3 unresolved on git-issues/ab2fe. Created on 1365278414.
+    This is a test description under 80 chars, too
+    ──────────────────────────────────────────────────────────────────────────
+        milestones             tags              assigned
+    ──────────────────────────────────────────────────────────────────────────
+             -                   -                   -
+
+    Issue #4 unresolved on master/85d65. Created on 1365389962.
+    This is a test issue again. Something something.  
+    ──────────────────────────────────────────────────────────────────────────
+        milestones             tags              assigned
+    ──────────────────────────────────────────────────────────────────────────
+          release              test          justinvh@gmail....
+    ──────────────────────────────────────────────────────────────────────────
 
 
-    # lists all resolved issues
-    git issue list resolved
-    >> Issue #4 - A short description of issue #4 {milestone} [tag] [foo]
+lists all resolved issues
+
+    $ git issue list resolved
+
+    Issue #4 unresolved on master/85d65. Created on 1365389962.
+    This is a test issue again. Something something.  
+    ──────────────────────────────────────────────────────────────────────────
+        milestones             tags              assigned
+    ──────────────────────────────────────────────────────────────────────────
+          release              test          justinvh@gmail....
+    ──────────────────────────────────────────────────────────────────────────
 
 
-    # lists all issues assigned to a certain user
-    git issue list --assign "justinvh@gmail.com"
-    >> Issue #1 - A short description of issue #1 {milestone} [tag] [foo]
-    >> Issue #2 - A short description of issue #2 {milestone} {milestone} [bar]
-    >> Issue #3 - A short description of issue #3
+lists all issues assigned to a certain user
+
+    $ git issue list --assign "justinvh@gmail.com"
+
+    Issue #4 unresolved on master/85d65. Created on 1365389962.
+    This is a test issue again. Something something.  
+    ──────────────────────────────────────────────────────────────────────────
+        milestones             tags              assigned
+    ──────────────────────────────────────────────────────────────────────────
+          release              test          justinvh@gmail....
+    ──────────────────────────────────────────────────────────────────────────
 
 
 Deleting an issue

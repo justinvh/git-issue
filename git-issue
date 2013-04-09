@@ -208,7 +208,8 @@ def issue_create(args):
                    'assigned': assigned,
                    'resolved_in': False,
                    'resolved': False})
-    json.dump(issues, open(issue_list_file, 'w'), indent=4)
+
+    json.dump(issues, open(issue_list_file, 'wb'), indent=4)
 
     msg = 'created issue {} on branch {} at commit {}.'
     msg = msg.format(issue_count, current_branch, current_commit)
@@ -369,10 +370,12 @@ def issue_resolve(args):
 
     '''
 
+
 def issue_delete(args):
     '''Deletes an issue.
 
     '''
+
 
 def argument_create():
     '''Provides some organizational qualities to the argument parsing
@@ -391,7 +394,6 @@ def argument_create():
                             action='store_true',
                             help='Read issue message from stdin')
         option.set_defaults(func=issue_create)
-
 
     def argument_list():
         '''Arguments pertaining to listing issues.

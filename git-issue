@@ -13,6 +13,7 @@ import logging
 import subprocess
 import sys
 import json
+import binascii
 
 try:
     from itertools import zip_longest
@@ -47,7 +48,7 @@ ISSUE_TEMPLATE = """
 """
 
 Issue = namedtuple('Issue', ['resolved', 'milestones', 'tags', 'created',
-                             'assigned', 'num', 'branch', 'commit'])
+                             'assigned', 'unique_id', 'branch', 'commit'])
 
 
 def chunks(l, n):
@@ -94,6 +95,14 @@ class Git:
     @staticmethod
     def stash_pop():
         return Git.command('stash', 'pop')
+
+    @staticmethod
+    def email():
+        return Git.properties('user.email')
+
+    @staticmethod
+    def properties(what):
+        return Git.command('config', what)
 
     @staticmethod
     def branch():
@@ -191,18 +200,15 @@ def issue_create(args):
     issue_dir = repository_dir
     Git.branch_checkout("git-issues")
 
-    # Try to figure out which issue this is going to be
     issues = []
-    issue_count = 0
     issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
     if os.path.exists(issue_list_file):
         issues = json.load(open(issue_list_file))
-        for issue in issues:
-            issue_count = max(issue['num'], issue_count)
-    issue_count += 1
+
+    unique_issue_id = binascii.b2a_hex(os.urandom(3))
 
     # Write the issue template
-    issue_file = os.sep.join([issue_dir, str(issue_count)])
+    issue_file = os.sep.join([issue_dir, unique_issue_id])
     with open(issue_file, 'w') as issue:
         issue.write(ISSUE_TEMPLATE)
 
@@ -244,7 +250,7 @@ def issue_create(args):
 
     # Get the commit details
     created = int(time.time())
-    issues.append({'num': issue_count,
+    issues.append({'unique_id': unique_issue_id,
                    'commit': current_commit,
                    'branch': current_branch,
                    'created': str(created),
@@ -258,7 +264,7 @@ def issue_create(args):
     json.dump(issues, open(issue_list_file, 'wb'), indent=4)
 
     msg = 'created issue {} on branch {} at commit {}.'
-    msg = msg.format(issue_count, current_branch, current_commit)
+    msg = msg.format(unique_issue_id, current_branch, current_commit)
     Git.add(issue_dir)
     Git.commit(issue_dir, from_file=issue_filename)
     print(msg)
@@ -298,7 +304,7 @@ def issue_list(args):
     if ids:
         temp_results = []
         for i, issue in enumerate(issues):
-            if issue['num'] in ids:
+            if issue['unique_id'] in ids:
                 temp_results.append(i)
         results.append(temp_results)
 
@@ -347,7 +353,7 @@ def issue_list(args):
         return
 
     # Create a structure for tabulating the data
-    ignored = ['description', 'num', 'commit', 'branch', 'resolved', 'created', 'resolved_in']
+    ignored = ['description', 'unique_id', 'commit', 'branch', 'resolved', 'created', 'resolved_in']
     key_size = len(list(results[0].keys())) - len(ignored)
     table_format = '{:^19} ' * key_size
     newline = '-' * 20 * key_size
@@ -361,7 +367,7 @@ def issue_list(args):
         # Store the current data so we can print it on multiple
         # rows, but under the same issue.
         resolved_text = 'resolved' if issue['resolved'] else 'unresolved'
-        issue_args = (issue['num'], resolved_text, issue['branch'],
+        issue_args = (issue['unique_id'], resolved_text, issue['branch'],
                       issue['commit'][:5], issue['created'])
         print('Issue #{} {} on {}/{}. Created on {}.'.format(*issue_args))
         print(issue['description'])
@@ -432,15 +438,15 @@ def issue_resolve(args):
 
     # Gather all unresolved issues
     commit_issues = {}
-    num_issues = {}
+    fn_issues = {}
     for issue in issues:
         resolved_in = issue.get('resolved_in')
-        num = issue.get('num')
+        fn = issue.get('unique_id')
         if resolved_in:
             commit_issues[resolved_in] = issue
-        num_issues[num] = issue
+        fn_issues[fn] = issue
 
-    unresolved = [(i['num'], i) for i in issues]
+    unresolved = [(i['unique_id'], i) for i in issues]
     logger.debug('{} unresolved issues'.format(len(unresolved)))
 
     issue_was_resolved = False
@@ -465,7 +471,7 @@ def issue_resolve(args):
             fix = fix.strip()
             updates.append(fix)
             fix = int(fix)
-            issue = num_issues.get(fix)
+            issue = fn_issues.get(fix)
             if not issue:
                 msg = 'Failed to find issue #{} as specified on commit {}'
                 logger.info(msg.format(fix, commit))

@@ -61,6 +61,10 @@ class Git:
         return Git.command('stash')
 
     @staticmethod
+    def pull():
+        return Git.command('pull')
+
+    @staticmethod
     def yield_commit_if_log_contains(what):
         """Yields a single commit if a particular log entry
         contains 'what' in it.
@@ -623,6 +627,8 @@ if __name__ == '__main__':
                     f.write('[]')
                 Git.add(issue_list_file)
                 Git.commit(issue_list_file, from_message='Initial commit.')
+        Git.branch_checkout('git-issue')
+        Git.pull()
         args.func(args)
     except AttributeError as e:
         logger.exception(e)

@@ -17,6 +17,18 @@ Quick Run Down
     git issue resolve
     git issue delete
 
+On First Run
+------------
+On your first run of git issue -- that is any action -- it will search across
+your remotes for a git-issues branch. If it exists, then it will checkout
+that remote and sync your issues. On successive calls it will always make
+sure your git-issues branch is up-to-date.
+
+If the remote does not exist, then it will create a branch called git-issues.
+Issues created are very straight-forward. There is a top-level (by default)
+`issues` JSON-descriptor and then n-many issue files that are the actual
+issues as recorded by the submitter.
+
 
 Requirements
 ============

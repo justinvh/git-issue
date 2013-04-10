@@ -3,28 +3,38 @@
 
 '''
 from __future__ import unicode_literals
+from collections import namedtuple
+import subprocess
+
+def git_getconfig(key, default=None):
+    try:
+        return subprocess.check_output(['git', 'config', key])
+    except subprocess.CalledProcessError:
+        return default
 
 # You are free to edit any of the following to match your respective
 # language, issue-feel, and so on.
 
+# The issue list is the JSON-database that annotate the issues.
+ISSUE_LIST_FILE = git_getconfig('issue.issuelist', 'issues')
+
 # The branch that is created to store the issues.
-ISSUE_BRANCH = 'git-issues'
+ISSUE_BRANCH = git_getconfig('issue.branch', 'git-issues')
 
 # When EDITOR is not specified in the environment, this is invoked:
-DEFAULT_EDITOR = 'vim'
+EDITOR_ENVIRONMENT = git_getconfig('issue.editor.environment', 'EDITOR')
+DEFAULT_EDITOR = git_getconfig('issue.editor.path', 'vim')
 
 # The tokens are the values searched for the leading-lines in a message.
-TOKEN_ASSIGN = 'assign:'
-TOKEN_TAG = 'tags:'
-TOKEN_MILESTONE = 'milestone:'
+TOKEN_ASSIGN = git_getconfig('issue.tokens.assign', 'assign:')
+TOKEN_TAG = git_getconfig('issue.tokens.tag', 'tags:')
+TOKEN_MILESTONE = git_getconfig('issue.tokens.milestone', 'milestone:')
+TOKEN_FIXES = git_getconfig('issue.tokens.fixes', 'Fixes:')
 
 # We need these values so we can split() correctly.
 TOKEN_ASSIGN_LENGTH = len(TOKEN_ASSIGN)
 TOKEN_TAG_LENGTH = len(TOKEN_TAG)
 TOKEN_MILESTONE_LENGTH = len(TOKEN_MILESTONE)
-
-# The issue list is the JSON-database that annotate the issues.
-ISSUE_LIST_FILE = 'issues'
 
 # The issue template is written to a temporary file and is invoked by the
 # user's EDITOR to create a new issue.
@@ -47,6 +57,42 @@ ISSUE_TEMPLATE = """
 #   the body entirely);
 """
 
+ISSUE_LIST_DESCRIPTION_TEMPLATE = '{issue_description}'
+ISSUE_LIST_HEADER_TEMPLATE = ('Issue {issue_hash} {issue_resolved} - '
+                              '{issue_branch}:{issue_commit} - '
+                              '{issue_created}')
+
+# The resolved template is what is output to the console as well as committed
+# in the issue-branch
+RESOLVED_TEMPLATE = """
+==================================================
+Resolving issue #{issue_hash} with {issue_commit} on {issue_branch}
+==================================================
+{issue_description}
+--------------------------------------------------
+With commit {resolved_commit} on {resolved_branch}
+--------------------------------------------------
+{resolved_log}
+"""
+
+STRINGS = {
+    'no_head': 'Issues can not be created without the HEAD',
+    'bad_editor': '{} is not set in your environment. Please set it.',
+    'default_editor': 'Defaulting to {}',
+    'empty_issue': 'Aborting issue due to empty issue message',
+    'issue_created': ('created issue {issue_hash} on branch '
+                        '{issue_branch} at commit {issue_commit}'),
+    'no_issues': 'No issues have been created',
+    'bad_resolve': 'Failed to find #{issue_hash} as seen in {resolved_commit}',
+    'no_resolve': 'No issues could be resolved',
+    'ask_commit': 'Do you want to continue (y/n) ',
+    'ask_commit_yes': 'y'
+}
+
+# We created an object from our strings because it's annoying to
+# just use [] everywhere.
+locale_msg = namedtuple('Locale', STRINGS.keys())(*STRINGS.values())
+
 # Anything below here is the actual implementation.
 
 from io import open
@@ -55,7 +101,6 @@ import os
 import time
 import argparse
 import logging
-import subprocess
 import sys
 import json
 import binascii
@@ -76,7 +121,7 @@ global_branch = None
 class Git:
     """Static methods for manipulating a Git repository.
 
-    Since we're already invoking git, we really don't really need to guarnatee
+    Since we're already invoking git, we really don't really need to guarantee
     on an external repository since we already are in one.
 
     """
@@ -217,10 +262,10 @@ def issue_create(args):
     # We expect EDITOR to be in the environment, but if it is not then
     # they get to deal with Vim, but we sleep for 2-seconds so the user
     # can at least see the problem.
-    if not os.environ.get('EDITOR'):
-        logger.info('EDITOR is not set in your environment. Please set it.')
-        logger.info('Defaulting to vim.')
-        os.environ['EDITOR'] = DEFAULT_EDITOR
+    if not os.environ.get(EDITOR_ENVIRONMENT):
+        print(locale_msg.bad_editor.format(EDITOR_ENVIRONMENT))
+        print(locale_msg.default_editor.format(DEFAULT_EDITOR))
+        os.environ[EDITOR_ENVIRONMENT] = DEFAULT_EDITOR
         time.sleep(2)
 
     # At this point the git-issues repository already exists
@@ -245,9 +290,9 @@ def issue_create(args):
         issue.write(ISSUE_TEMPLATE)
 
     # Invoke the editor and open the issue file
-    ret = subprocess.call([os.environ.get('EDITOR'), issue_file])
+    ret = subprocess.call([os.environ.get(EDITOR_ENVIRONMENT), issue_file])
     if ret != 0:
-        print('Aborting issue due to empty issue message.')
+        print(locale_msg.empty_issue)
         return
 
     # Since we have this many-many relationship between issues and milestones,
@@ -270,7 +315,7 @@ def issue_create(args):
         # alert the user that their issue failed.
         if not valid_lines:
             os.remove(issue_file)
-            print('Aborting issue due to empty issue message.')
+            print(locale_msg.empty_issue)
             return
 
         # Iterate through the remaining lines and try to fetch out tokens
@@ -306,8 +351,10 @@ def issue_create(args):
     json.dump(issues, open(issue_list_file, 'wb'), indent=4)
 
     # The commit for this entry will match the issue.
-    msg = 'created issue {} on branch {} at commit {}.'
-    msg = msg.format(unique_issue_id, current_branch, current_commit)
+    kwargs = {'issue_hash': unique_issue_id,
+              'issue_branch': current_branch,
+              'issue_commit': current_commit}
+    msg = locale_msg.issue_created.format(**kwargs)
     Git.add(issue_dir)
     Git.commit(issue_dir, from_file=issue_filename)
     print(msg)
@@ -318,9 +365,9 @@ def issue_list(args):
 
     '''
     # By default we have to ensure that the git-issue branch even exists
-    issue_local_branch_exists = Git.local_branch_exists('git-issues')
+    issue_local_branch_exists = Git.local_branch_exists(ISSUE_BRANCH)
     if not issue_local_branch_exists:
-        sys.exit('No issues has been created.')
+        sys.exit(locale_msg.no_issues)
 
     # Verify that an issue list even exists
     Git.branch_checkout(ISSUE_BRANCH)
@@ -328,7 +375,7 @@ def issue_list(args):
     issue_dir = repository_dir
     issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
     if not os.path.exists(issue_list_file):
-        sys.exit('No issues exist.')
+        sys.exit(locale_msg.no_issues)
 
     # Load the issues
     issues = json.load(open(issue_list_file))
@@ -413,10 +460,15 @@ def issue_list(args):
         resolved_text = 'resolved' if issue['resolved'] else 'unresolved'
         created = float(issue['created'])
         created = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(created))
-        issue_args = (issue['unique_id'], resolved_text, issue['branch'],
-                      issue['commit'][:5], created)
-        print('Issue {} {} - {}:{} - {}'.format(*issue_args))
-        print(issue['description'])
+        issue_kwargs = {'issue_hash': issue['unique_id'],
+                        'issue_resolved': resolved_text,
+                        'issue_branch': issue['branch'],
+                        'issue_commit': issue['commit'][:5],
+                        'issue_created': created,
+                        'issue_description': issue['description']}
+
+        print(ISSUE_LIST_HEADER_TEMPLATE.format(**issue_kwargs))
+        print(ISSUE_LIST_DESCRIPTION_TEMPLATE.format(**issue_kwargs))
 
         # In short-description mode we can bail early
         if args.short:
@@ -473,7 +525,7 @@ def issue_resolve(args):
     issue_dir = repository_dir
     issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
     if not os.path.exists(issue_list_file):
-        sys.exit('No issues exist.')
+        sys.exit(locale_msg.no_issues)
 
     # Load the issues
     issues = json.load(open(issue_list_file))
@@ -499,65 +551,64 @@ def issue_resolve(args):
 
     # Gather all the history
     updates = []
-    for commit in Git.yield_commit_if_log_contains("Fixes:"):
+    resolved_branch = global_branch
+    for resolved_commit in Git.yield_commit_if_log_contains(TOKEN_FIXES):
         # If we already processed this commit, then skip it.
-        if commit_issues.get(commit):
+        if commit_issues.get(resolved_commit):
             continue
 
         # Retrieve the actual history for the commit and then determine
         # what it actually fixes relative to our issue-list
         fixes = []
-        log = Git.fetch_log_by_commit(commit, message_only=True)
+        log = Git.fetch_log_by_commit(resolved_commit, message_only=True)
 
         # Iterate through the log backwards since the Fixes-token will most
         # likely be at the end of the log. Issues are in the form of:
-        # Fixes: issue1, issue2, issue3
+        # {TOKEN_FIXES}: issue1, issue2, issue3
         for line in reversed(log):
             line = line.strip()
-            if line.startswith('Fixes:'):
+            if line.startswith(TOKEN_FIXES):
                 fixes = line.split(':')[1].split(',')
                 break
 
         # Now we have to check if any of the marked issues can actually be
         # fixed with our current issue-list.
-        for fix in fixes:
-            fix = fix.strip()
-            updates.append(fix)
-            fix = int(fix)
-            issue = fn_issues.get(fix)
+        for issue_hash in fixes:
+            issue_hash = int(issue_hash.strip())
+            issue = fn_issues.get(issue_hash)
             if not issue:
-                msg = 'Failed to find issue #{} as specified on commit {}'
-                logger.info(msg.format(fix, commit))
+                kwargs = {'issue_hash': issue_hash,
+                          'resolved_commit': resolved_commit}
+                logger.info(locale_msg.bad_resolve.format(**kwargs))
                 continue
             issue_was_resolved = True
-            msg = ('==================================================\n'
-                   'Resolving issue #{} with {} on {}:\n'
-                   '==================================================\n'
-                   '{}\n'
-                   '--------------------------------------------------\n'
-                   'With commit {} on {}:\n'
-                   '--------------------------------------------------\n'
-                   '{}\n')
             issue_commit = issue['commit']
             issue_branch = issue['branch']
+            issue_description = issue['description']
             issue['resolved'] = True
-            issue['resolved_in'] = commit
+            issue['resolved_in'] = resolved_commit
             resolved_log = '\n'.join([l.strip() for l in log])
-            description = issue['description']
-            args = (fix, issue_commit[:8], issue_branch, description,
-                    commit[:8], global_branch, resolved_log)
-            logger.info(msg.format(*args))
+            resolved_kwargs = {'issue_hash': issue_hash,
+                               'issue_commit': issue_commit[:8],
+                               'issue_branch': issue_branch,
+                               'issue_description': issue_description,
+                               'resolved_commit': resolved_commit[:8],
+                               'resolved_branch': resolved_branch,
+                               'resolved_log': resolved_log}
+            msg = RESOLVED_TEMPLATE.format(**resolved_kwargs)
+            updates.append(msg)
+            print(msg)
 
     # No issues found, let the user know.
     if not issue_was_resolved:
-        print('No issue could be resolved.')
+        print(locale_msg.no_resolve)
         return
 
     # Ask if we should commit our changes
-    if raw_input('Do you want to continue (y/n) ').lower() == 'y':
-        Git.branch_checkout('git-issues')
+    if raw_input(locale_msg.ask_commit).lower() == locale_msg.ask_commit_yes:
+        Git.branch_checkout(ISSUE_BRANCH)
         json.dump(issues, open(issue_list_file, 'wb'), indent=4)
-        commit_msg = 'Resolves issues {}'.format(', '.join(updates))
+        commit_msg = '\n\n'.join(updates)
         Git.commit(Git.repository(), from_message=commit_msg)
 
 
@@ -660,7 +711,7 @@ if __name__ == '__main__':
         logger.setLevel(logging.DEBUG)
 
     if not Git.commit_exists():
-        sys.exit('Issues can not be created without a HEAD')
+        sys.exit(locale_msg.no_head)
 
     Git.stash()
     global_branch = Git.branch()
@@ -668,26 +719,26 @@ if __name__ == '__main__':
 
     try:
         # Check if the git-issues branch exists.
-        issue_local_branch_exists = Git.local_branch_exists('git-issues')
+        issue_local_branch_exists = Git.local_branch_exists(ISSUE_BRANCH)
         repository_dir = Git.repository()
         issue_dir = repository_dir
         if not issue_local_branch_exists:
             # Create the issue directory if necessary
-            logger.info("Checking if remote exists")
-            remote = Git.remote_branch_exists('git-issues')
+            logger.debug("Checking if remote exists")
+            remote = Git.remote_branch_exists(ISSUE_BRANCH)
             if remote:
-                logger.info('Remote exists, checking it out.')
-                Git.branch_remote_checkout('git-issues', remote)
+                logger.debug('Remote exists, checking it out.')
+                Git.branch_remote_checkout(ISSUE_BRANCH, remote)
             else:
-                logger.info("Remote does not exist. Creating branch.")
-                Git.branch_create('git-issues', orphan=True)
+                logger.debug("Remote does not exist. Creating branch.")
+                Git.branch_create(ISSUE_BRANCH, orphan=True)
                 Git.rm(".", recursive=True)
                 issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
                 with open(issue_list_file, 'wb') as f:
                     f.write('[]')
                 Git.add(issue_list_file)
                 Git.commit(issue_list_file, from_message='Initial commit.')
-        Git.branch_checkout('git-issue')
+        Git.branch_checkout(ISSUE_BRANCH)
         Git.pull()
         args.func(args)
     except AttributeError as e:

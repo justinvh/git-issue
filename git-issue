@@ -367,9 +367,11 @@ def issue_list(args):
         # Store the current data so we can print it on multiple
         # rows, but under the same issue.
         resolved_text = 'resolved' if issue['resolved'] else 'unresolved'
+        created = float(issue['created'])
+        created = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(created))
         issue_args = (issue['unique_id'], resolved_text, issue['branch'],
-                      issue['commit'][:5], issue['created'])
-        print('Issue #{} {} on {}/{}. Created on {}.'.format(*issue_args))
+                      issue['commit'][:5], created)
+        print('Issue {} {} - {}:{} - {}'.format(*issue_args))
         print(issue['description'])
 
         # In short-description mode we can bail early

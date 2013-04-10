@@ -5,7 +5,6 @@ An issue tracker for Git built around Git in Python.
 
 Git issue will use your local repository to store the issues. This allows
 you to address issues offline and then on push sync issues with others.
-Issues abuse dot-files, so a `.git-issues` will be created. 
 
 Multiple hooks are created when you run git issue.
 
@@ -23,7 +22,6 @@ Requirements
 ============
 
 - At least Python 2.7
-- `sh`
 
 
 Usage

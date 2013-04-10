@@ -106,13 +106,31 @@ class Git:
         return Git.command("checkout", name)
 
     @staticmethod
+    def fetch():
+        return Git.command("fetch")
+
+    @staticmethod
+    def branch_remote_checkout(name, remote):
+        if 'fatal' in Git.fetch():
+            return False
+        return Git.command("checkout", "-b", name, remote)
+
+    @staticmethod
     def branch_delete(name):
         return Git.command("branch", "-D", name)
 
     @staticmethod
-    def branch_exists(name):
+    def local_branch_exists(name):
         msg = Git.command("show-ref", "--verify", "refs/heads/{}".format(name))
         return 'fatal' not in msg
+
+    @staticmethod
+    def remote_branch_exists(name):
+        for branch in Git.command('branch', '-r'):
+            branch = branch.strip()
+            if branch.endswith(name):
+                return branch
+        return None
 
     @staticmethod
     def rm(what, recursive=False):
@@ -165,16 +183,9 @@ def issue_create(args):
         os.environ['EDITOR'] = 'vim'
 
     # Check if the git-issues branch exists.
-    issue_branch_exists = Git.branch_exists('git-issues')
     repository_dir = Git.repository()
     issue_dir = repository_dir
-    if not issue_branch_exists:
-        # Create the issue directory if necessary
-        logger.info("Creating git-issue branch")
-        Git.branch_create('git-issues', orphan=True)
-        Git.rm(".", recursive=True)
-    else:
-        Git.branch_checkout("git-issues")
+    Git.branch_checkout("git-issues")
 
     # Try to figure out which issue this is going to be
     issues = []
@@ -254,8 +265,8 @@ def issue_list(args):
 
     '''
     # By default we have to ensure that the git-issue branch even exists
-    issue_branch_exists = Git.branch_exists('git-issues')
-    if not issue_branch_exists:
+    issue_local_branch_exists = Git.local_branch_exists('git-issues')
+    if not issue_local_branch_exists:
         sys.exit('No issues has been created.')
 
     # Verify that an issue list even exists
@@ -400,8 +411,8 @@ def issue_resolve(args):
     '''Resolves created issues.
 
     '''
-    issue_branch_exists = Git.branch_exists('git-issues')
-    if not issue_branch_exists:
+    issue_local_branch_exists = Git.local_branch_exists('git-issues')
+    if not issue_local_branch_exists:
         sys.exit('No issues created.')
 
     # Verify that an issue list even exists
@@ -592,6 +603,26 @@ if __name__ == '__main__':
     logger.debug('Current branch is {}'.format(global_branch))
 
     try:
+        # Check if the git-issues branch exists.
+        issue_local_branch_exists = Git.local_branch_exists('git-issues')
+        repository_dir = Git.repository()
+        issue_dir = repository_dir
+        if not issue_local_branch_exists:
+            # Create the issue directory if necessary
+            logger.info("Checking if remote exists")
+            remote = Git.remote_branch_exists('git-issues')
+            if remote:
+                logger.info('Remote exists, checking it out.')
+                Git.branch_remote_checkout('git-issues', remote)
+            else:
+                logger.info("Remote does not exist. Creating branch.")
+                Git.branch_create('git-issues', orphan=True)
+                Git.rm(".", recursive=True)
+                issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
+                with open(issue_list_file, 'wb') as f:
+                    f.write('[]')
+                Git.add(issue_list_file)
+                Git.commit(issue_list_file, from_message='Initial commit.')
         args.func(args)
     except AttributeError as e:
         logger.exception(e)

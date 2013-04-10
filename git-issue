@@ -24,6 +24,8 @@ logging.basicConfig(format='%(message)s')
 logger = logging.getLogger(logger_name)
 logger.setLevel(logging.INFO)
 
+global_branch = None
+
 ISSUE_LIST_FILE = 'issues'
 ISSUE_TEMPLATE = """
 # Anything below this line will be ignored.
@@ -57,6 +59,33 @@ class Git:
     @staticmethod
     def stash():
         return Git.command('stash')
+
+    @staticmethod
+    def yield_commit_if_log_contains(what):
+        """Yields a single commit if a particular log entry
+        contains 'what' in it.
+
+        TODO(justinvh): Figure out why --grep doesn't work?
+
+        """
+        args = ('--no-pager', 'log', '--decorate=short'.format(what))
+        results = Git.command(*args)
+        start_index = -1
+        for i, line in enumerate(results):
+            if line.startswith('commit'):
+                start_index = i
+            if start_index >= 0 and what in line:
+                commit = results[start_index].split(' ')[1]
+                start_index = -1
+                yield commit
+
+    @staticmethod
+    def fetch_log_by_commit(commit, message_only=False):
+        args = ('--no-pager', 'show', '--name-only', commit)
+        message = Git.command(*args)
+        if message_only:
+            return message[4:]
+        return message
 
     @staticmethod
     def stash_pop():
@@ -301,7 +330,7 @@ def issue_list(args):
         return
 
     # Create a structure for tabulating the data
-    ignored = ['description', 'num', 'commit', 'branch', 'resolved', 'created']
+    ignored = ['description', 'num', 'commit', 'branch', 'resolved', 'created', 'resolved_in']
     key_size = len(list(results[0].keys())) - len(ignored)
     table_format = '{:^19} ' * key_size
     newline = '-' * 20 * key_size
@@ -369,7 +398,91 @@ def issue_resolve(args):
     '''Resolves created issues.
 
     '''
+    issue_branch_exists = Git.branch_exists('git-issues')
+    if not issue_branch_exists:
+        sys.exit('No issues created.')
 
+    # Verify that an issue list even exists
+    Git.branch_checkout("git-issues")
+    repository_dir = Git.repository()
+    issue_dir = repository_dir
+    issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
+    if not os.path.exists(issue_list_file):
+        sys.exit('No issues exist.')
+
+    # Load the issues
+    issues = json.load(open(issue_list_file))
+
+    # Gather all unresolved issues
+    commit_issues = {}
+    num_issues = {}
+    for issue in issues:
+        resolved_in = issue.get('resolved_in')
+        num = issue.get('num')
+        if resolved_in:
+            commit_issues[resolved_in] = issue
+        num_issues[num] = issue
+
+    unresolved = [(i['num'], i) for i in issues]
+    logger.debug('{} unresolved issues'.format(len(unresolved)))
+
+    issue_was_resolved = False
+
+    # Now check back into the last branch
+    Git.branch_checkout(global_branch)
+
+    # Gather all the history
+    updates = []
+    for commit in Git.yield_commit_if_log_contains("Fixes:"):
+        if commit_issues.get(commit):
+            continue
+        fixes = []
+        log = Git.fetch_log_by_commit(commit, message_only=True)
+        # Iterate through the log backwards and look for fixes attr.
+        for line in reversed(log):
+            line = line.strip()
+            if line.startswith('Fixes:'):
+                fixes = line.split(':')[1].split(',')
+                break
+        for fix in fixes:
+            fix = fix.strip()
+            updates.append(fix)
+            fix = int(fix)
+            issue = num_issues.get(fix)
+            if not issue:
+                msg = 'Failed to find issue #{} as specified on commit {}'
+                logger.info(msg.format(fix, commit))
+                continue
+            issue_was_resolved = True
+            msg = ('==================================================\n'
+                   'Resolving issue #{} with {} on {}:\n'
+                   '==================================================\n'
+                   '{}\n'
+                   '--------------------------------------------------\n'
+                   'With commit {} on {}:\n'
+                   '--------------------------------------------------\n'
+                   '{}\n')
+            issue_commit = issue['commit']
+            issue_branch = issue['branch']
+            issue['resolved'] = True
+            issue['resolved_in'] = commit
+            resolved_log = '\n'.join([l.strip() for l in log])
+            description = issue['description']
+            args = (fix, issue_commit[:8], issue_branch, description,
+                    commit[:8], global_branch, resolved_log)
+            logger.info(msg.format(*args))
+
+    # No issues found, let the user know.
+    if not issue_was_resolved:
+        print('No issue could be resolved.')
+        return
+
+    # Ask if we should commit our changes
+    if raw_input('Do you want to continue (y/n) ').lower() == 'y':
+        Git.branch_checkout('git-issues')
+        json.dump(issues, open(issue_list_file, 'wb'), indent=4)
+        commit_msg = 'Resolves issues {}'.format(', '.join(updates))
+        Git.commit(Git.repository(), from_message=commit_msg)
 
 def issue_delete(args):
     '''Deletes an issue.
@@ -463,20 +576,24 @@ def argument_create():
 
 
 if __name__ == '__main__':
+    parser = argument_create()
+    args = parser.parse_args()
+
+    if args.verbose:
+        logger.setLevel(logging.DEBUG)
+
     if not Git.commit_exists():
         sys.exit('Issues can not be created without a HEAD')
 
     Git.stash()
-    current_branch = Git.branch()
-    logger.debug('Current branch is {}'.format(current_branch))
+    global_branch = Git.branch()
+    logger.debug('Current branch is {}'.format(global_branch))
 
     try:
-        parser = argument_create()
-        args = parser.parse_args()
         args.func(args)
     except AttributeError as e:
-        logger.info(e)
+        logger.exception(e)
         parser.print_help()
     finally:
-        Git.branch_checkout(current_branch)
+        Git.branch_checkout(global_branch)
         Git.stash_pop()

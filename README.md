@@ -24,6 +24,23 @@ Requirements
 - At least Python 2.7
 
 
+Customization
+=============
+
+Most of `git-issue` can be customized to fit your needs. This includes:
+
+- Changing text to fit your respective language
+- Modifying default editor
+- Adjusting the template text
+
+By default `git-issue` will try to look up parameters from your `git-config`
+environment. This means you can overload parameters on a per-project basis.
+
+`git-issue` was designed such that most of the user-configurable options
+are at the beginning of the file. It should be very straight-forward to
+change parameters with minimal knowledge of Python.
+
+
 Usage
 =====
 

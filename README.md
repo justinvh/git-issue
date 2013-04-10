@@ -25,9 +25,7 @@ that remote and sync your issues. On successive calls it will always make
 sure your git-issues branch is up-to-date.
 
 If the remote does not exist, then it will create a branch called git-issues.
-Issues created are very straight-forward. There is a top-level (by default)
-`issues` JSON-descriptor and then n-many issue files that are the actual
-issues as recorded by the submitter.
+Issues created are very straight-forward. 
 
 
 Requirements

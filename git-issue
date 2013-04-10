@@ -15,9 +15,6 @@ def git_getconfig(key, default=None):
 # You are free to edit any of the following to match your respective
 # language, issue-feel, and so on.
 
-# The issue list is the JSON-database that annotate the issues.
-ISSUE_LIST_FILE = git_getconfig('issue.issuelist', 'issues')
-
 # The branch that is created to store the issues.
 ISSUE_BRANCH = git_getconfig('issue.branch', 'git-issues')
 
@@ -98,7 +95,6 @@ locale_msg = namedtuple('Locale', STRINGS.keys())(*STRINGS.values())
 # Anything below here is the actual implementation.
 
 from io import open
-from tempfile import NamedTemporaryFile
 
 import os
 import time
@@ -147,8 +143,7 @@ class Git:
         args = ('--no-pager', 'log', '--decorate=short'.format(what))
         results = Git.command(*args)
         start_index = -1
-        for i, line in enumerate(results):
-            line = line.lower()
+        for i, line in enumerate(yield_lower(results)):
             if line.startswith('commit'):
                 start_index = i
             line = line.strip()
@@ -235,7 +230,9 @@ class Git:
         return "fatal" not in Git.command('rev-list', 'HEAD')
 
     @staticmethod
-    def commit(filename=None, from_file=None, from_message=None):
+    def commit(filename=None, empty=False, from_file=None, from_message=None):
+        if empty:
+            return Git.command('commit', '--allow-empty', from_message)
         if filename is None:
             return Git.command('rev-parse', '--verify', 'HEAD')[0]
         if from_file:
@@ -263,6 +260,29 @@ class Git:
             return e.output
 
 
+class Issue(dict):
+    def __init__(self, filename):
+        self.filename = filename
+        dict.__init__(self, json.load(open(filename)))
+
+    def commit(self, filename):
+        json.dump(self, open(filename, 'wb'))
+
+
+def yield_lower(iterable):
+    for i in iterable:
+        yield i.lower()
+
+def yield_strip(iterable):
+    for i in iterable:
+        yield i.strip()
+
+def yield_issues():
+    import glob
+    for filename in glob.glob('*.issue.json'):
+        yield Issue(filename)
+
+
 def issue_create(args):
     '''Creates a new issue.
 
@@ -283,12 +303,6 @@ def issue_create(args):
     repository_dir = Git.repository()
     issue_dir = repository_dir
     Git.branch_checkout(ISSUE_BRANCH)
-
-    # Fetch and read the issues list so we can extend it later on.
-    issues = []
-    issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
-    if os.path.exists(issue_list_file):
-        issues = json.load(open(issue_list_file))
 
     # Now we generate a 6-value ASCII string. urandom does use random for
     # seeding its values, so it is technically pseudo-random.
@@ -331,14 +345,13 @@ def issue_create(args):
 
         # Iterate through the remaining lines and try to fetch out tokens
         # that match our format.
-        for line in valid_lines:
+        for line in yield_lower(valid_lines):
             # Break the milestones
-            lowered = line.lower()
-            if lowered.startswith(TOKEN_MILESTONE):
+            if line.startswith(TOKEN_MILESTONE):
                 milestones = line[TOKEN_MILESTONE_LENGTH:].split()
-            elif lowered.startswith(TOKEN_TAG):
+            elif line.startswith(TOKEN_TAG):
                 tags = line[TOKEN_TAG_LENGTH:].split()
-            elif lowered.startswith(TOKEN_ASSIGN):
+            elif line.startswith(TOKEN_ASSIGN):
                 assigned.append(line[TOKEN_ASSIGN_LENGTH:])
         valid_issue = '\n'.join(valid_lines)
 
@@ -349,17 +362,20 @@ def issue_create(args):
 
     # Create a new entry for the JSON pseudo-db
     created = int(time.time())
-    issues.append({'unique_id': unique_issue_id,
-                   'commit': current_commit,
-                   'branch': current_branch,
-                   'created': str(created),
-                   'milestones': milestones,
-                   'tags': tags,
-                   'description': valid_issue[:80].split('\n')[0],
-                   'assigned': assigned,
-                   'resolved_in': False,
-                   'resolved': False})
-    json.dump(issues, open(issue_list_file, 'wb'), indent=4)
+    issue = {'unique_id': unique_issue_id,
+             'commit': current_commit,
+             'branch': current_branch,
+             'created': str(created),
+             'milestones': milestones,
+             'tags': tags,
+             'description': valid_issue[:80].split('\n')[0],
+             'assigned': assigned,
+             'resolved_in': False,
+             'resolved': False}
+
+    json.dump(issue,
+              open('{}.issue.json'.format(unique_issue_id), 'wb'),
+              indent=4)
 
     # The commit for this entry will match the issue.
     kwargs = {'issue_hash': unique_issue_id,
@@ -382,73 +398,57 @@ def issue_list(args):
 
     # Verify that an issue list even exists
     Git.branch_checkout(ISSUE_BRANCH)
-    repository_dir = Git.repository()
-    issue_dir = repository_dir
-    issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
-    if not os.path.exists(issue_list_file):
-        sys.exit(locale_msg.no_issues)
 
-    # Load the issues
-    issues = json.load(open(issue_list_file))
-    results = [[i for i, _ in enumerate(issues)]]
+    # Create an intersection of the results
+    available = set()
+    resolved_set = set()
+    id_set = set()
+    tag_set = set()
+    milestone_set = set()
+    assigned_set = set()
+    id_to_issue = {}
 
-    # Gather all the resolved issues
-    if args.resolved:
-        temp_results = []
-        for i, issue in enumerate(issues):
-            if issue['resolved']:
-                temp_results.append(i)
-        results.append(temp_results)
+    for i, issue in enumerate(yield_issues()):
+        id_to_issue[i] = issue
+        available.append(i)
 
-    # Gather all the issues specified by ID
-    ids = args.id
-    if ids:
-        temp_results = []
-        for i, issue in enumerate(issues):
-            if issue['unique_id'] in ids:
-                temp_results.append(i)
-        results.append(temp_results)
+        # Gather all the resolved issues
+        if args.resolved and issue['resolved']:
+            resolved_set.add(i)
 
-    # Gather all the issues specified with a certain tag
-    tags = set(args.tag)
-    if tags:
-        temp_results = []
-        for i, issue in enumerate(issues):
-            if set(issue['tags']) & tags:
-                temp_results.append(i)
-        results.append(temp_results)
+        # Gather all the issues specified by ID
+        ids = args.id
+        if ids and issue['unique_id'] in ids:
+            id_set.add(i)
 
-    # Gather all the issues specified with a certain milestone
-    milestone = set(args.milestone)
-    if milestone:
-        temp_results = []
-        for i, issue in enumerate(issues):
-            if set(issue['milestones']) & milestone:
-                temp_results.append(i)
-        results.append(temp_results)
+        # Gather all the issues specified with a certain tag
+        tags = set(args.tag)
+        if tags and set(issue['tags'] & tags):
+            tag_set.add(i)
 
-    # Check the assign-list vs the issue users with a find()
-    assigned = args.assign
-    if assigned:
-        temp_results = []
-        for i, issue in enumerate(issues):
-            for user in issue['assigned']:
-                user = user.lower()
-                for assign in assigned:
-                    assign = assign.lower()
+        # Gather all the issues specified with a certain milestone
+        milestone = set(args.milestone)
+        if milestone and set(issue['milestones']) & milestone:
+            milestone_set.add(i)
+
+        # Check the assign-list vs the issue users with a find()
+        assigned = args.assign
+        if assigned:
+            for user in yield_lower(issue['assigned']):
+                for assign in yield_lower(assigned):
                     if user.find(assign) != -1:
-                        temp_results.append(i)
+                        assigned_set.add(i)
                         break
                 else:
                     continue
                 break
-        results.append(temp_results)
 
-    # Find the intersection of all the results
-    temp_results = set(results[0])
-    for result in results[1:]:
-        temp_results &= set(result)
-    results = [issues[i] for i in temp_results]
+    unioned = [resolved_set, id_set, tag_set, milestone_set, assigned_set]
+    intersection = available
+    for result in unioned:
+        intersection &= result
+
+    results = [id_to_issue[S['unique_id']] for S in intersection]
 
     if not results:
         return
@@ -461,7 +461,7 @@ def issue_list(args):
     newline = '-' * 20 * key_size
 
     # Remove the description from the key-list
-    keys = list(issues[0].keys())
+    keys = list(available[0].keys())
     for ignore in ignored:
         keys.remove(ignore)
 
@@ -532,30 +532,25 @@ def issue_resolve(args):
     '''
     # Verify that an issue list even exists
     Git.branch_checkout(ISSUE_BRANCH)
-    repository_dir = Git.repository()
-    issue_dir = repository_dir
-    issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
-    if not os.path.exists(issue_list_file):
-        sys.exit(locale_msg.no_issues)
+    issue_was_resolved = False
 
     # Load the issues
-    issues = json.load(open(issue_list_file))
+    unresolved = []
+    id_to_issue = {}
+    commit_issues = {}
 
     # Gather all unresolved issues so we can determine what can
     # be potentially mark as resolved.
-    commit_issues = {}
-    fn_issues = {}
-    for issue in issues:
-        resolved_in = issue.get('resolved_in')
-        fn = issue.get('unique_id')
-        if resolved_in:
-            commit_issues[resolved_in] = issue
-        fn_issues[fn] = issue
+    for issue in yield_issues():
+        issue_resolved_in = issue['resolved_in']
+        id_to_issue[issue['unique_id']] = issue
+        if issue_resolved_in:
+            commit_issues[issue_resolved_in] = issue
+        else:
+            unresolved.append(issue)
 
-    unresolved = [(i['unique_id'], i) for i in issues]
     logger.debug('{} unresolved issues'.format(len(unresolved)))
 
-    issue_was_resolved = False
 
     # Now check back into the last branch so we can read the logs
     Git.branch_checkout(global_branch)
@@ -576,8 +571,7 @@ def issue_resolve(args):
         # Iterate through the log backwards since the Fixes-token will most
         # likely be at the end of the log. Issues are in the form of:
         # {TOKEN_FIXES}: issue1, issue2, issue3
-        for line in reversed(log):
-            line = line.strip()
+        for line in reversed(yield_strip(log)):
             if line.startswith(TOKEN_FIXES):
                 fixes = line.split(':')[1].split(',')
                 break
@@ -586,7 +580,7 @@ def issue_resolve(args):
         # fixed with our current issue-list.
         for issue_hash in fixes:
             issue_hash = issue_hash.strip()
-            issue = fn_issues.get(issue_hash)
+            issue = id_to_issue.get(issue_hash)
             if not issue:
                 kwargs = {'issue_hash': issue_hash,
                           'resolved_commit': resolved_commit}
@@ -607,7 +601,7 @@ def issue_resolve(args):
                                'resolved_branch': resolved_branch,
                                'resolved_log': resolved_log}
             msg = RESOLVED_TEMPLATE.format(**resolved_kwargs)
-            updates.append((msg, resolved_kwargs))
+            updates.append((msg, resolved_kwargs, issue))
             print(msg)
 
     # No issues found, let the user know.
@@ -618,32 +612,18 @@ def issue_resolve(args):
     # Ask if we should commit our changes
     if raw_input(locale_msg.ask_commit).lower() == locale_msg.ask_commit_yes:
         Git.branch_checkout(ISSUE_BRANCH)
-        json.dump(issues, open(issue_list_file, 'wb'), indent=4)
-        commit_msg = '\n\n'.join([u[0] for u in updates])
-        Git.commit(Git.repository(), from_message=commit_msg)
-
-        # Write the resolved messages to a file so we can attach
-        # them to the message.
-        issue_files = {}
-        for _, update_kwargs in updates:
-            unique_id = update_kwargs['issue_hash']
-            content = open(unique_id).read()
-            content += '\n\n--\n\n{}'.format(update_kwargs['resolved_log'])
-            temp = NamedTemporaryFile(delete=False)
-            temp.write(content)
-            temp.close()
-            issue_files[unique_id] = temp
+        for msg, resolved_kwargs, issue in updates:
+            issue.commit()
+            Git.commit(Git.repository(), from_message=msg)
 
         # Now create a tag to mark the issue resolved in the resolved branch
         Git.branch_checkout(resolved_branch)
-        for _, update_kwargs in updates:
-            temp_file = issue_files[update_kwargs['issue_hash']]
+        for msg, update_kwargs, issue in updates:
             tag = locale_msg.tag_resolved.format(**update_kwargs)
             resolved = update_kwargs['resolved_commit']
-            Git.tag(tag, resolved, from_file=temp_file.name)
             tag_created_kwargs = {'tag': tag, 'commit': resolved}
-            os.unlink(temp_file.name)
             print(locale_msg.tag_created.format(**tag_created_kwargs))
+            Git.tag(tag, resolved)
 
 
 def issue_delete(args):
@@ -767,11 +747,7 @@ if __name__ == '__main__':
                 logger.debug("Remote does not exist. Creating branch.")
                 Git.branch_create(ISSUE_BRANCH, orphan=True)
                 Git.rm(".", recursive=True)
-                issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
-                with open(issue_list_file, 'wb') as f:
-                    f.write('[]')
-                Git.add(issue_list_file)
-                Git.commit(issue_list_file, from_message='Initial commit.')
+                Git.commit(empty=True, from_message='Initial commit.')
         Git.branch_checkout(ISSUE_BRANCH)
         Git.pull()
         args.func(args)

@@ -49,7 +49,6 @@ ISSUE_TEMPLATE = """
 
 # Anything below here is the actual implementation.
 
-from collections import namedtuple
 from io import open
 
 import os
@@ -72,14 +71,6 @@ logger = logging.getLogger(logger_name)
 logger.setLevel(logging.INFO)
 
 global_branch = None
-
-Issue = namedtuple('Issue', ['resolved', 'milestones', 'tags', 'created',
-                             'assigned', 'unique_id', 'branch', 'commit'])
-
-
-def chunks(l, n):
-    for i in range(0, len(l), n):
-        yield l[i:i+n]
 
 
 class Git:
@@ -259,7 +250,7 @@ def issue_create(args):
         print('Aborting issue due to empty issue message.')
         return
 
-    # Since we have this 1-many relationship between issues and milestones,
+    # Since we have this many-many relationship between issues and milestones,
     # tags, and assigned-list, we have to fan-out the values up-front
     # so we can present them reasonably.
     milestones = []
@@ -395,7 +386,7 @@ def issue_list(args):
                 break
         results.append(temp_results)
 
-    # Find the intersection of the results
+    # Find the intersection of all the results
     temp_results = set(results[0])
     for result in results[1:]:
         temp_results &= set(result)
@@ -476,10 +467,6 @@ def issue_resolve(args):
     '''Resolves created issues.
 
     '''
-    issue_local_branch_exists = Git.local_branch_exists('git-issues')
-    if not issue_local_branch_exists:
-        sys.exit('No issues created.')
-
     # Verify that an issue list even exists
     Git.branch_checkout(ISSUE_BRANCH)
     repository_dir = Git.repository()
@@ -491,7 +478,8 @@ def issue_resolve(args):
     # Load the issues
     issues = json.load(open(issue_list_file))
 
-    # Gather all unresolved issues
+    # Gather all unresolved issues so we can determine what can
+    # be potentially mark as resolved.
     commit_issues = {}
     fn_issues = {}
     for issue in issues:
@@ -506,22 +494,32 @@ def issue_resolve(args):
 
     issue_was_resolved = False
 
-    # Now check back into the last branch
+    # Now check back into the last branch so we can read the logs
     Git.branch_checkout(global_branch)
 
     # Gather all the history
     updates = []
     for commit in Git.yield_commit_if_log_contains("Fixes:"):
+        # If we already processed this commit, then skip it.
         if commit_issues.get(commit):
             continue
+
+        # Retrieve the actual history for the commit and then determine
+        # what it actually fixes relative to our issue-list
         fixes = []
         log = Git.fetch_log_by_commit(commit, message_only=True)
-        # Iterate through the log backwards and look for fixes attr.
+
+        # Iterate through the log backwards since the Fixes-token will most
+        # likely be at the end of the log. Issues are in the form of:
+        # Fixes: issue1, issue2, issue3
         for line in reversed(log):
             line = line.strip()
             if line.startswith('Fixes:'):
                 fixes = line.split(':')[1].split(',')
                 break
+
+        # Now we have to check if any of the marked issues can actually be
+        # fixed with our current issue-list.
         for fix in fixes:
             fix = fix.strip()
             updates.append(fix)
@@ -561,6 +559,7 @@ def issue_resolve(args):
         json.dump(issues, open(issue_list_file, 'wb'), indent=4)
         commit_msg = 'Resolves issues {}'.format(', '.join(updates))
         Git.commit(Git.repository(), from_message=commit_msg)
+
 
 def issue_delete(args):
     '''Deletes an issue.

@@ -160,7 +160,9 @@ def issue_create(args):
     current_branch = Git.branch()
     current_commit = Git.commit()
     if not os.environ.get('EDITOR'):
-        sys.exit('EDITOR is not set in your environment. Please set it.')
+        logger.info('EDITOR is not set in your environment. Please set it.')
+        logger.info('Defaulting to vim.')
+        os.environ['EDITOR'] = 'vim'
 
     # Check if the git-issues branch exists.
     issue_branch_exists = Git.branch_exists('git-issues')

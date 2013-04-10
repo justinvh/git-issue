@@ -3,6 +3,52 @@
 
 '''
 from __future__ import unicode_literals
+
+# You are free to edit any of the following to match your respective
+# language, issue-feel, and so on.
+
+# The branch that is created to store the issues.
+ISSUE_BRANCH = 'git-issues'
+
+# When EDITOR is not specified in the environment, this is invoked:
+DEFAULT_EDITOR = 'vim'
+
+# The tokens are the values searched for the leading-lines in a message.
+TOKEN_ASSIGN = 'assign:'
+TOKEN_TAG = 'tags:'
+TOKEN_MILESTONE = 'milestone:'
+
+# We need these values so we can split() correctly.
+TOKEN_ASSIGN_LENGTH = len(TOKEN_ASSIGN)
+TOKEN_TAG_LENGTH = len(TOKEN_TAG)
+TOKEN_MILESTONE_LENGTH = len(TOKEN_MILESTONE)
+
+# The issue list is the JSON-database that annotate the issues.
+ISSUE_LIST_FILE = 'issues'
+
+# The issue template is written to a temporary file and is invoked by the
+# user's EDITOR to create a new issue.
+ISSUE_TEMPLATE = """
+# Anything below this line will be ignored.
+# The ideal structure of a message looks like:
+#
+#  Capitalized, short (50 chars or less) summary
+#
+#   Milestone: milestone1 milestone2
+#
+#   Tag: tag1 tag2 tag3
+#
+#   Assign: Justin Bruce Van Horne <justinvh@gmail.com>
+#
+#   More detailed explanatory text, if necessary.  Wrap it to about 72
+#   characters or so.  In some contexts, the first line is treated as the
+#   subject of an email and the rest of the text as the body.  The blank
+#   line separating the summary from the body is critical (unless you omit
+#   the body entirely);
+"""
+
+# Anything below here is the actual implementation.
+
 from collections import namedtuple
 from io import open
 
@@ -27,26 +73,6 @@ logger.setLevel(logging.INFO)
 
 global_branch = None
 
-ISSUE_LIST_FILE = 'issues'
-ISSUE_TEMPLATE = """
-# Anything below this line will be ignored.
-# The ideal structure of a message looks like:
-#
-#  Capitalized, short (50 chars or less) summary
-#
-#   Milestone: milestone1 milestone2
-#
-#   Tag: tag1 tag2 tag3
-#
-#   Assign: Justin Bruce Van Horne <justinvh@gmail.com>
-#
-#   More detailed explanatory text, if necessary.  Wrap it to about 72
-#   characters or so.  In some contexts, the first line is treated as the
-#   subject of an email and the rest of the text as the body.  The blank
-#   line separating the summary from the body is critical (unless you omit
-#   the body entirely);
-"""
-
 Issue = namedtuple('Issue', ['resolved', 'milestones', 'tags', 'created',
                              'assigned', 'unique_id', 'branch', 'commit'])
 
@@ -57,6 +83,12 @@ def chunks(l, n):
 
 
 class Git:
+    """Static methods for manipulating a Git repository.
+
+    Since we're already invoking git, we really don't really need to guarnatee
+    on an external repository since we already are in one.
+
+    """
     @staticmethod
     def stash():
         return Git.command('stash')
@@ -70,7 +102,7 @@ class Git:
         """Yields a single commit if a particular log entry
         contains 'what' in it.
 
-        TODO(justinvh): Figure out why --grep doesn't work?
+        TODO(justinvh): Figure out why git log --grep doesn't work?
 
         """
         args = ('--no-pager', 'log', '--decorate=short'.format(what))
@@ -190,24 +222,33 @@ def issue_create(args):
     '''
     current_branch = Git.branch()
     current_commit = Git.commit()
+
+    # We expect EDITOR to be in the environment, but if it is not then
+    # they get to deal with Vim, but we sleep for 2-seconds so the user
+    # can at least see the problem.
     if not os.environ.get('EDITOR'):
         logger.info('EDITOR is not set in your environment. Please set it.')
         logger.info('Defaulting to vim.')
-        os.environ['EDITOR'] = 'vim'
+        os.environ['EDITOR'] = DEFAULT_EDITOR
+        time.sleep(2)
 
-    # Check if the git-issues branch exists.
+    # At this point the git-issues repository already exists
     repository_dir = Git.repository()
     issue_dir = repository_dir
-    Git.branch_checkout("git-issues")
+    Git.branch_checkout(ISSUE_BRANCH)
 
+    # Fetch and read the issues list so we can extend it later on.
     issues = []
     issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
     if os.path.exists(issue_list_file):
         issues = json.load(open(issue_list_file))
 
+    # Now we generate a 6-value ASCII string. urandom does use random for
+    # seeding its values, so it is technically pseudo-random.
     unique_issue_id = binascii.b2a_hex(os.urandom(3))
 
-    # Write the issue template
+    # Write the issue template so it is ready when the user's editor
+    # invokes the file.
     issue_file = os.sep.join([issue_dir, unique_issue_id])
     with open(issue_file, 'w') as issue:
         issue.write(ISSUE_TEMPLATE)
@@ -218,37 +259,48 @@ def issue_create(args):
         print('Aborting issue due to empty issue message.')
         return
 
+    # Since we have this 1-many relationship between issues and milestones,
+    # tags, and assigned-list, we have to fan-out the values up-front
+    # so we can present them reasonably.
     milestones = []
     tags = []
     assigned = []
 
-    # Read what the issue was and check if it was empty.
+    # At this point the user saved and their EDITOR wrote out a value to
+    # the issue file, we need to verify that it is not empty and then
+    # fetch out the various attributes.
     valid_issue = ''
     with open(issue_file) as issue:
+        # Remove all leading and trailing spaces, then truncate comments.
         lines = issue.read().strip().splitlines()
         valid_lines = [x for x in lines if not x.startswith('#')]
+
+        # A blank message is not an issue, so we remove the file and
+        # alert the user that their issue failed.
         if not valid_lines:
             os.remove(issue_file)
             print('Aborting issue due to empty issue message.')
             return
 
+        # Iterate through the remaining lines and try to fetch out tokens
+        # that match our format.
         for line in valid_lines:
             # Break the milestones
             lowered = line.lower()
-            if lowered.startswith('milestone:'):
-                milestones = line[10:].split()
-            elif lowered.startswith('tag:'):
-                tags = line[4:].split()
-            elif lowered.startswith('assign:'):
-                assigned.append(line[7:])
+            if lowered.startswith(TOKEN_MILESTONE):
+                milestones = line[TOKEN_MILESTONE_LENGTH:].split()
+            elif lowered.startswith(TOKEN_TAG):
+                tags = line[TOKEN_TAG_LENGTH:].split()
+            elif lowered.startswith(TOKEN_ASSIGN):
+                assigned.append(line[TOKEN_ASSIGN_LENGTH:])
         valid_issue = '\n'.join(valid_lines)
 
-    # Write the cleaned up issue
+    # Write the cleaned up issue to disk.
     issue_filename = issue_file
     with open(issue_file, 'w') as issue:
         issue.write(valid_issue)
 
-    # Get the commit details
+    # Create a new entry for the JSON pseudo-db
     created = int(time.time())
     issues.append({'unique_id': unique_issue_id,
                    'commit': current_commit,
@@ -260,9 +312,9 @@ def issue_create(args):
                    'assigned': assigned,
                    'resolved_in': False,
                    'resolved': False})
-
     json.dump(issues, open(issue_list_file, 'wb'), indent=4)
 
+    # The commit for this entry will match the issue.
     msg = 'created issue {} on branch {} at commit {}.'
     msg = msg.format(unique_issue_id, current_branch, current_commit)
     Git.add(issue_dir)
@@ -280,7 +332,7 @@ def issue_list(args):
         sys.exit('No issues has been created.')
 
     # Verify that an issue list even exists
-    Git.branch_checkout("git-issues")
+    Git.branch_checkout(ISSUE_BRANCH)
     repository_dir = Git.repository()
     issue_dir = repository_dir
     issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])
@@ -353,7 +405,8 @@ def issue_list(args):
         return
 
     # Create a structure for tabulating the data
-    ignored = ['description', 'unique_id', 'commit', 'branch', 'resolved', 'created', 'resolved_in']
+    ignored = ['description', 'unique_id', 'commit',
+               'branch', 'resolved', 'created', 'resolved_in']
     key_size = len(list(results[0].keys())) - len(ignored)
     table_format = '{:^19} ' * key_size
     newline = '-' * 20 * key_size
@@ -428,7 +481,7 @@ def issue_resolve(args):
         sys.exit('No issues created.')
 
     # Verify that an issue list even exists
-    Git.branch_checkout("git-issues")
+    Git.branch_checkout(ISSUE_BRANCH)
     repository_dir = Git.repository()
     issue_dir = repository_dir
     issue_list_file = os.sep.join([issue_dir, ISSUE_LIST_FILE])

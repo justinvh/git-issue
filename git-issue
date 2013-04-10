@@ -85,6 +85,8 @@ STRINGS = {
     'no_issues': 'No issues have been created',
     'bad_resolve': 'Failed to find #{issue_hash} as seen in {resolved_commit}',
     'no_resolve': 'No issues could be resolved',
+    'tag_resolved': 'tag-{issue_hash}-resolved',
+    'tag_created': 'Creating tag {tag} at {commit}',
     'ask_commit': 'Do you want to continue (y/n) ',
     'ask_commit_yes': 'y'
 }
@@ -96,6 +98,7 @@ locale_msg = namedtuple('Locale', STRINGS.keys())(*STRINGS.values())
 # Anything below here is the actual implementation.
 
 from io import open
+from tempfile import NamedTemporaryFile
 
 import os
 import time
@@ -212,6 +215,12 @@ class Git:
             if branch.endswith(name):
                 return branch
         return None
+
+    @staticmethod
+    def tag(name, commit, from_file=None):
+        if from_file:
+            return Git.command('tag', name, commit, '-F', from_file)
+        return Git.command('tag', name, commit)
 
     @staticmethod
     def rm(what, recursive=False):
@@ -574,7 +583,7 @@ def issue_resolve(args):
         # Now we have to check if any of the marked issues can actually be
         # fixed with our current issue-list.
         for issue_hash in fixes:
-            issue_hash = int(issue_hash.strip())
+            issue_hash = issue_hash.strip()
             issue = fn_issues.get(issue_hash)
             if not issue:
                 kwargs = {'issue_hash': issue_hash,
@@ -596,7 +605,7 @@ def issue_resolve(args):
                                'resolved_branch': resolved_branch,
                                'resolved_log': resolved_log}
             msg = RESOLVED_TEMPLATE.format(**resolved_kwargs)
-            updates.append(msg)
+            updates.append((msg, resolved_kwargs))
             print(msg)
 
     # No issues found, let the user know.
@@ -608,8 +617,31 @@ def issue_resolve(args):
     if raw_input(locale_msg.ask_commit).lower() == locale_msg.ask_commit_yes:
         Git.branch_checkout(ISSUE_BRANCH)
         json.dump(issues, open(issue_list_file, 'wb'), indent=4)
-        commit_msg = '\n\n'.join(updates)
+        commit_msg = '\n\n'.join([u[0] for u in updates])
         Git.commit(Git.repository(), from_message=commit_msg)
+
+        # Write the resolved messages to a file so we can attach
+        # them to the message.
+        issue_files = {}
+        for _, update_kwargs in updates:
+            unique_id = update_kwargs['issue_hash']
+            content = open(unique_id).read()
+            content += '\n\n--\n\n{}'.format(update_kwargs['resolved_log'])
+            temp = NamedTemporaryFile(delete=False)
+            temp.write(content)
+            temp.close()
+            issue_files[unique_id] = temp
+
+        # Now create a tag to mark the issue resolved in the resolved branch
+        Git.branch_checkout(resolved_branch)
+        for _, update_kwargs in updates:
+            temp_file = issue_files[update_kwargs['issue_hash']]
+            tag = locale_msg.tag_resolved.format(**update_kwargs)
+            resolved = update_kwargs['resolved_commit']
+            Git.tag(tag, resolved, from_file=temp_file.name)
+            tag_created_kwargs = {'tag': tag, 'commit': resolved}
+            os.unlink(temp_file.name)
+            print(locale_msg.tag_created.format(**tag_created_kwargs))
 
 
 def issue_delete(args):

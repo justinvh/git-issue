@@ -40,6 +40,23 @@ environment. This means you can overload parameters on a per-project basis.
 are at the beginning of the file. It should be very straight-forward to
 change parameters with minimal knowledge of Python.
 
+Default Parameters
+-------------------
+
+You can adjust any of these parameters by using `git config parameter value`:
+
+
+| Parameter                | Default    |
+| ------------------------ | ---------- |
+| issue.issuelist          | issues     |
+| issue.branch             | git-issues |
+| issue.editor.environment | EDITOR     |
+| issue.editor.path        | vim        |
+| issue.tokens.assign      | assign:    |
+| issue.tokens.tag         | tags:      |
+| issue.tokens.milestone   | milestone: |
+| issue.tokens.fixes       | fixes:     |
+
 
 Usage
 =====
@@ -113,17 +130,17 @@ You can assign an issue to an individual by specifying either their git
 user and email or alternatively just their email. Either way an email needs
 to be specified. This action is always retroactive edit.
 
-    git issue --amend 1 --assign "Justin Bruce Van Horne <justinvh@gmail.com>"
-    >> Emailing issue #1 to Justin Bruce Van Horne at justinvh@gmail.com
+    git issue --amend 03afad --assign "Justin Van Horne <justinvh@gmail.com>"
+    >> Emailing issue 03afad to Justin Van Horne at justinvh@gmail.com
 
 Multiple users can be specified at the command line as well.
 
-    git issue --amend 1 --assign "Justin Bruce Van Horne <justinvh@gmail.com>"\
-                       --assign "Anonymous Person <anonymous@gmail.com>"\
-                       --assign "anonymous2@gmail.com"
-    >> Emailing issue #1 to Justin Bruce Van Horne at justinvh@gmail.com
-    >> Emailing issue #1 to Anonymous Person <anonymous@gmail.com>
-    >> Emailing issue #1 to anonymous2@gmail.com
+    git issue --amend 03afad --assign "Justin Van Horne <justinvh@gmail.com>"\
+                             --assign "A. Person <anonymous@gmail.com>"\
+                             --assign "anonymous@gmail.com"
+    >> Emailing issue 03afad to Justin Van Horne at justinvh@gmail.com
+    >> Emailing issue 03afad to A. Person <anonymous@gmail.com>
+    >> Emailing issue 03afad to anonymous2@gmail.com
 
 
 Editing an Issue
@@ -132,21 +149,21 @@ Editing an Issue
 You can edit issues from the command-line or just plainly edit it all-together.
 This will re-prompt you with your `$EDITOR`
 
-    git issue --amend 1
+    git issue --amend 0xdead
 
 You can modify other attributes such as the title, tags, milestones,
 assignments, and description.
 
-    git issue --amend 1 --title "A new title"
+    git issue --amend 0xdead --title "A new title"
     >> <<Outputs the entire issue again>>
 
-    git issue --amend 1 --tag foo --tags bar
+    git issue --amend 0xdead --tag foo --tags bar
     >> <<Outputs the entire issue again>>
 
-    git issue --amend 1 --milestone milestone1
+    git issue --amend 0xdead --milestone milestone1
     >> <<Outputs the entire issue again>>
 
-    git issue --amend 1 --description "A description of some sort"
+    git issue --amend 0xdead --description "A description of some sort"
     >> <<Outputs the entire issue again>>
 
 
@@ -169,21 +186,21 @@ commit messaged looked like:
     LibvirtConfigCaps. Also provide a test case to validate
     the data being returned
 
-    Fixes: issue #1
+    Fixes: 03afad
 
-Then this message would mark issue #1 resolved. You can resolve multiple
+Then this message would mark issue 03afad resolved. You can resolve multiple
 issues in a single commit as well.
 
-    Fixes: issue #1, issue #2, issue #3
+    Fixes: 03afad, 069djd, 8ujnfd
 
 If an issue can not be resolved from a commit, then `git issue` will let you
-know and verify your action. For example: we create an issue #1, but not
-issue #2, then the following would happen:
+know and verify your action. For example: we create an issue 03afad, but not
+issue 069djd, then the following would happen:
 
     git issue resolve
-    >> Failed to resolve issue #2 on branch master at commit 2fd4e1c6.
+    >> Failed to resolve issue 069djd on branch master at commit 2fd4e1c6.
     >> Do you want to continue (y/n): y
-    >> Creating tag issue-1-resolved at 2fd4e1c6.
+    >> Creating tag issue-069djd-resolved at 2fd4e1c6.
 
 Alternatively if no issues can be found, then the following happens:
 
@@ -196,7 +213,7 @@ Resolving an Issue Manually
 
 You can resolve an issue by just specifying the issue number and the commit.
 
-    git issue resolve --id 1 --commit 2fd4e1c6
+    git issue resolve --id 0xdead --commit 2fd4e1c6
     >> Creating tag issue-1-resolved at 2fd4e1c6.
 
 You can specify multiple `--id` with a single `--commit`.
@@ -208,7 +225,7 @@ lists all unresolved issues
 
     $ git issue list
 
-    Issue #2 unresolved on master/85d65. Created on 1365278151.
+    Issue 03fada unresolved on master/85d65. Created on 1365278151.
     This is a test description under 80 chars
     --------------------------------------------------------------------------
         milestones             tags              assigned
@@ -223,7 +240,7 @@ lists all unresolved issues with the tag "foo"
 
     $ git issue list --tag foo
 
-    Issue #2 unresolved on master/85d65. Created on 1365278151.
+    Issue 8jfh3h unresolved on master/85d65. Created on 1365278151.
     This is a test description under 80 chars
     --------------------------------------------------------------------------
         milestones             tags              assigned
@@ -238,7 +255,7 @@ lists all unresolved issues with the tag "bar" and milestone "milestone"
 
     $ git issue list --tag bar --milestone "milestone"
 
-    Issue #2 unresolved on master/85d65. Created on 1365278151.
+    Issue 0dhhdu unresolved on master/85d65. Created on 1365278151.
     This is a test description under 80 chars
     --------------------------------------------------------------------------
         milestones             tags              assigned
@@ -253,7 +270,7 @@ lists all unresolved issues
 
     $ git issue list --unresolved
 
-    Issue #2 unresolved on master/85d65. Created on 1365278151.
+    Issue 8rufhh unresolved on master/85d65. Created on 1365278151.
     This is a test description under 80 chars
     --------------------------------------------------------------------------
         milestones             tags              assigned
@@ -263,14 +280,14 @@ lists all unresolved issues
              -                   -           Justin Van Horn...
     --------------------------------------------------------------------------
 
-    Issue #3 unresolved on git-issues/ab2fe. Created on 1365278414.
+    Issue 0dsf8d unresolved on git-issues/ab2fe. Created on 1365278414.
     This is a test description under 80 chars, too
     --------------------------------------------------------------------------
         milestones             tags              assigned
     --------------------------------------------------------------------------
              -                   -                   -
 
-    Issue #4 unresolved on master/85d65. Created on 1365389962.
+    Issue 0dsfj3 unresolved on master/85d65. Created on 1365389962.
     This is a test issue again. Something something.  
     --------------------------------------------------------------------------
         milestones             tags              assigned
@@ -283,7 +300,7 @@ lists all resolved issues
 
     $ git issue list resolved
 
-    Issue #4 unresolved on master/85d65. Created on 1365389962.
+    Issue e9ijfd unresolved on master/85d65. Created on 1365389962.
     This is a test issue again. Something something.  
     --------------------------------------------------------------------------
         milestones             tags              assigned
@@ -296,7 +313,7 @@ lists all issues assigned to a certain user
 
     $ git issue list --assign "justinvh@gmail.com"
 
-    Issue #4 unresolved on master/85d65. Created on 1365389962.
+    Issue 8fuifj unresolved on master/85d65. Created on 1365389962.
     This is a test issue again. Something something.  
     --------------------------------------------------------------------------
         milestones             tags              assigned
@@ -308,11 +325,11 @@ lists all issues assigned to a certain user
 Deleting an issue
 -----------------
 
-    git issue delete --id 1
+    git issue delete --id 0xdead
     >> Deleting issue:
     >>
-    >> Issue #1 - A short description of issue #1 {milestone} [tag] [foo]
-    >> Longer description of issue #1
+    >> Issue 03xxdj - A description of issue 03xxdj {milestone} [tag] [foo]
+    >> Longer description of issue 03xxdj
     >> 
     >> Do you want to continue (y/n): y
     >> Issue is deleted.

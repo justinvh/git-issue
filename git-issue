@@ -29,7 +29,7 @@ DEFAULT_EDITOR = git_getconfig('issue.editor.path', 'vim')
 TOKEN_ASSIGN = git_getconfig('issue.tokens.assign', 'assign:')
 TOKEN_TAG = git_getconfig('issue.tokens.tag', 'tags:')
 TOKEN_MILESTONE = git_getconfig('issue.tokens.milestone', 'milestone:')
-TOKEN_FIXES = git_getconfig('issue.tokens.fixes', 'Fixes:')
+TOKEN_FIXES = git_getconfig('issue.tokens.fixes', 'fixes:')
 
 # We need these values so we can split() correctly.
 TOKEN_ASSIGN_LENGTH = len(TOKEN_ASSIGN)
@@ -148,9 +148,11 @@ class Git:
         results = Git.command(*args)
         start_index = -1
         for i, line in enumerate(results):
+            line = line.lower()
             if line.startswith('commit'):
                 start_index = i
-            if start_index >= 0 and what in line:
+            line = line.strip()
+            if start_index >= 0 and line.startswith(what):
                 commit = results[start_index].split(' ')[1]
                 start_index = -1
                 yield commit

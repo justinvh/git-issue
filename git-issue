@@ -232,7 +232,7 @@ class Git:
     @staticmethod
     def commit(filename=None, empty=False, from_file=None, from_message=None):
         if empty:
-            return Git.command('commit', '--allow-empty', from_message)
+            return Git.command('commit', '--allow-empty', '-m', from_message)
         if filename is None:
             return Git.command('rev-parse', '--verify', 'HEAD')[0]
         if from_file:
@@ -265,7 +265,8 @@ class Issue(dict):
         self.filename = filename
         dict.__init__(self, json.load(open(filename)))
 
-    def commit(self, filename):
+    def commit(self, filename=None):
+        filename = filename or self.filename
         json.dump(self, open(filename, 'wb'))
 
 
@@ -287,6 +288,7 @@ def issue_create(args):
     '''Creates a new issue.
 
     '''
+    Git.branch_checkout(global_branch)
     current_branch = Git.branch()
     current_commit = Git.commit()
 
@@ -300,9 +302,9 @@ def issue_create(args):
         time.sleep(2)
 
     # At this point the git-issues repository already exists
+    Git.branch_checkout(ISSUE_BRANCH)
     repository_dir = Git.repository()
     issue_dir = repository_dir
-    Git.branch_checkout(ISSUE_BRANCH)
 
     # Now we generate a 6-value ASCII string. urandom does use random for
     # seeding its values, so it is technically pseudo-random.
@@ -577,7 +579,8 @@ def issue_resolve(args):
         # Iterate through the log backwards since the Fixes-token will most
         # likely be at the end of the log. Issues are in the form of:
         # {TOKEN_FIXES}: issue1, issue2, issue3
-        for line in reversed(yield_strip(log)):
+        for line in reversed(log):
+            line = line.strip().lower()
             if line.startswith(TOKEN_FIXES):
                 fixes = line.split(':')[1].split(',')
                 break

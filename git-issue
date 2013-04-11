@@ -36,8 +36,7 @@ TOKEN_MILESTONE_LENGTH = len(TOKEN_MILESTONE)
 # The issue template is written to a temporary file and is invoked by the
 # user's EDITOR to create a new issue.
 ISSUE_TEMPLATE = """
-# Anything below this line will be ignored.
-# The ideal structure of a message looks like:
+# Anything below this line will be ignored.  # The ideal structure of a message looks like:
 #
 #  Capitalized, short (50 chars or less) summary
 #
@@ -73,19 +72,23 @@ With commit {resolved_commit} on {resolved_branch}
 """
 
 STRINGS = {
-    'no_head': 'Issues can not be created without the HEAD',
+    'no_head': 'fatal: issues can not be created without the HEAD',
     'bad_editor': '{} is not set in your environment. Please set it.',
     'default_editor': 'Defaulting to {}',
-    'empty_issue': 'Aborting issue due to empty issue message',
+    'empty_issue': 'fatal: aborting issue due to empty issue message',
     'issue_created': ('created issue {issue_hash} on branch '
                         '{issue_branch} at commit {issue_commit}'),
-    'no_issues': 'No issues have been created',
+    'no_issues': 'fatal: no issues have been created',
     'bad_resolve': 'Failed to find #{issue_hash} as seen in {resolved_commit}',
-    'no_resolve': 'No issues could be resolved',
+    'no_resolve': 'fatal: no issues could be resolved',
     'tag_resolved': 'tag-{issue_hash}-resolved',
     'tag_created': 'Creating tag {tag} at {commit}',
     'ask_commit': 'Do you want to continue (y/n) ',
-    'ask_commit_yes': 'y'
+    'ask_commit_yes': 'y',
+    'ask_delete': 'Do you want to delete this issue (y/n) ',
+    'ask_delete_yes': 'y',
+    'delete_commit': 'Removes issue {}',
+    'issue_not_found': 'fatal: issue {} was not found',
 }
 
 # We created an object from our strings because it's annoying to
@@ -241,6 +244,10 @@ class Git:
             return Git.command('commit', filename, '-m', from_message)
 
     @staticmethod
+    def commit_all(message):
+        return Git.command('commit', '-a', '-m', message)
+
+    @staticmethod
     def repository():
         return Git.command('rev-parse', '--show-toplevel')[0]
 
@@ -262,26 +269,100 @@ class Git:
 
 class Issue(dict):
     def __init__(self, filename):
+        logger.debug('Loading issue descriptor from {}'.format(filename))
         self.filename = filename
         dict.__init__(self, json.load(open(filename)))
 
-    def commit(self, filename=None):
+    def update(self, filename=None):
         filename = filename or self.filename
         json.dump(self, open(filename, 'wb'))
+
+    def delete(self):
+        issue_text, ext = os.path.splitext(self.filename)
+        Git.rm(issue_text)
+        Git.rm(self.filename)
+
+    def __str__(self):
+        # Store the current data so we can print it on multiple
+        # rows, but under the same issue.
+        data = self.copy()
+
+        # Create a structure for tabulating the data
+        ignored = ['description', 'unique_id', 'commit',
+                'branch', 'resolved', 'created', 'resolved_in']
+        key_size = len(list(data.keys())) - len(ignored)
+        table_format = '{:^19} ' * key_size
+        newline = '-' * 20 * key_size
+
+        # Remove the description from the key-list
+        keys = list(data.keys())
+        for ignore in ignored:
+            keys.remove(ignore)
+
+        resolved_text = 'resolved' if data['resolved'] else 'unresolved'
+        created = float(data['created'])
+        created = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(created))
+        data_kwargs = {'issue_hash': data['unique_id'],
+                       'issue_resolved': resolved_text,
+                       'issue_branch': data['branch'],
+                       'issue_commit': data['commit'][:5],
+                       'issue_created': created,
+                       'issue_description': data['description']}
+
+        tmpl =  ISSUE_LIST_HEADER_TEMPLATE.format(**data_kwargs) + "\n"
+        tmpl += ISSUE_LIST_DESCRIPTION_TEMPLATE.format(**data_kwargs) + "\n"
+        tmpl += newline + "\n"
+        tmpl += table_format.format(*keys)+ "\n"
+        tmpl += newline + "\n"
+
+        # Grab the iterables up-front
+        milestones = data['milestones']
+        tags = data['tags']
+        assigned = data['assigned']
+
+        # The data will be displayed in multiple-rows, so we will need to
+        # fill the empty columns with a placeholder
+        zipped = list(zip_longest(milestones, tags, assigned, fillvalue='-'))
+
+        # In the case we don't have tags, milestones, or an assigned user
+        # So, just fill with the placeholder text
+        if not zipped:
+            data['milestones'] = '-'
+            data['tags'] = '-'
+            data['assigned'] = '-'
+            tmpl += table_format.format(*list(data.values())) + "\n"
+            tmpl += newline + "\n\n"
+            return tmpl
+
+        # Break each row for the milestones, tags, and assigned
+        for m, t, a in zipped:
+            data['milestones'] = m
+            data['tags'] = t
+            data['assigned'] = a[:16] + ('...' if len(a) > 16 else '')
+            tmpl += table_format.format(*list(data.values())) + "\n"
+
+        tmpl += newline + "\n\n"
+        return tmpl
 
 
 def yield_lower(iterable):
     for i in iterable:
         yield i.lower()
 
+
 def yield_strip(iterable):
     for i in iterable:
         yield i.strip()
 
-def yield_issues():
+
+def yield_issues(filenames=None):
     import glob
-    for filename in glob.glob('*.issue.json'):
-        yield Issue(filename)
+    iglobs = (glob.iglob('*_issue.json'),)
+    if filenames is not None:
+        iglobs = (glob.iglob('{}_issue.json'.format(fn)) for fn in filenames)
+    for iglob in iglobs:
+        for filename in iglob:
+            yield Issue(filename)
 
 
 def issue_create(args):
@@ -312,7 +393,7 @@ def issue_create(args):
 
     # Write the issue template so it is ready when the user's editor
     # invokes the file.
-    issue_file = os.sep.join([issue_dir, unique_issue_id])
+    issue_file = os.sep.join([issue_dir, unique_issue_id + '_issue'])
     with open(issue_file, 'w') as issue:
         issue.write(ISSUE_TEMPLATE)
 
@@ -378,7 +459,7 @@ def issue_create(args):
     logger.info(issue)
 
     json.dump(issue,
-              open('{}.issue.json'.format(unique_issue_id), 'wb'),
+              open('{}_issue.json'.format(unique_issue_id), 'wb'),
               indent=4)
 
     # The commit for this entry will match the issue.
@@ -461,77 +542,8 @@ def issue_list(args):
     if not results:
         return
 
-    # Create a structure for tabulating the data
-    ignored = ['description', 'unique_id', 'commit',
-               'branch', 'resolved', 'created', 'resolved_in']
-    key_size = len(list(results[0].keys())) - len(ignored)
-    table_format = '{:^19} ' * key_size
-    newline = '-' * 20 * key_size
-
-    # Remove the description from the key-list
-    keys = list(results[0].keys())
-    for ignore in ignored:
-        keys.remove(ignore)
-
     for issue in results:
-        # Store the current data so we can print it on multiple
-        # rows, but under the same issue.
-        resolved_text = 'resolved' if issue['resolved'] else 'unresolved'
-        created = float(issue['created'])
-        created = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(created))
-        issue_kwargs = {'issue_hash': issue['unique_id'],
-                        'issue_resolved': resolved_text,
-                        'issue_branch': issue['branch'],
-                        'issue_commit': issue['commit'][:5],
-                        'issue_created': created,
-                        'issue_description': issue['description']}
-
-        print(ISSUE_LIST_HEADER_TEMPLATE.format(**issue_kwargs))
-        print(ISSUE_LIST_DESCRIPTION_TEMPLATE.format(**issue_kwargs))
-
-        # In short-description mode we can bail early
-        if args.short:
-            print()
-            continue
-
-        # delete the used keys
-        for ignore in ignored:
-            del issue[ignore]
-
-        # Print the headers
-        print(newline)
-        print(table_format.format(*keys))
-        print(newline)
-
-        # Grab the iterables up-front
-        milestones = issue['milestones']
-        tags = issue['tags']
-        assigned = issue['assigned']
-
-        # The data will be displayed in multiple-rows, so we will need to
-        # fill the empty columns with a placeholder
-        zipped = list(zip_longest(milestones, tags, assigned, fillvalue='-'))
-
-        # In the case we don't have tags, milestones, or an assigned user
-        # So, just fill with the placeholder text
-        if not zipped:
-            issue['milestones'] = '-'
-            issue['tags'] = '-'
-            issue['assigned'] = '-'
-            print(table_format.format(*list(issue.values())))
-            print(newline)
-            print('')
-            continue
-
-        # Break each row for the milestones, tags, and assigned
-        for m, t, a in zipped:
-            issue['milestones'] = m
-            issue['tags'] = t
-            issue['assigned'] = a[:16] + ('...' if len(a) > 16 else '')
-            print(table_format.format(*list(issue.values())))
-
-        print(newline)
-        print('')
+        print(issue)
 
 
 def issue_resolve(args):
@@ -593,7 +605,7 @@ def issue_resolve(args):
             if not issue:
                 kwargs = {'issue_hash': issue_hash,
                           'resolved_commit': resolved_commit}
-                logger.info(locale_msg.bad_resolve.format(**kwargs))
+                print(locale_msg.bad_resolve.format(**kwargs))
                 continue
             issue_was_resolved = True
             issue_commit = issue['commit']
@@ -615,14 +627,13 @@ def issue_resolve(args):
 
     # No issues found, let the user know.
     if not issue_was_resolved:
-        print(locale_msg.no_resolve)
-        return
+        sys.exit(locale_msg.no_resolve)
 
     # Ask if we should commit our changes
     if raw_input(locale_msg.ask_commit).lower() == locale_msg.ask_commit_yes:
         Git.branch_checkout(ISSUE_BRANCH)
         for msg, resolved_kwargs, issue in updates:
-            issue.commit()
+            issue.update()
             Git.commit(Git.repository(), from_message=msg)
 
         # Now create a tag to mark the issue resolved in the resolved branch
@@ -639,6 +650,23 @@ def issue_delete(args):
     '''Deletes an issue.
 
     '''
+    not_found = True
+    Git.branch_checkout(ISSUE_BRANCH)
+
+    logger.debug('Attempting to delete {}'.format(args.id))
+
+    for issue in yield_issues(args.id):
+        not_found = False
+        print(issue)
+        can_delete = raw_input(locale_msg.ask_delete).lower()
+        if can_delete == locale_msg.ask_delete_yes:
+            issue.delete()
+            Git.commit_all(locale_msg.delete_commit.format(issue['unique_id']))
+
+    if not_found:
+        for unique_id in args.id:
+            msg = locale_msg.issue_not_found.format(unique_id)
+            print(msg)
 
 
 def argument_create():
@@ -667,7 +695,6 @@ def argument_create():
         option.add_argument('-i', '--id',
                             help='list only with a certain id',
                             default=[],
-                            type=int,
                             action='append')
 
         option.add_argument('-t', '--tag',
@@ -703,7 +730,16 @@ def argument_create():
         option = cmd.add_parser('resolve', help='resolve an issue')
         option.set_defaults(func=issue_resolve)
 
+    def argument_delete():
+        '''Arguments pertaining to deleting an issue.
+
+        '''
         option = cmd.add_parser('delete', help='delete an issue')
+        option.add_argument('-i', '--id',
+                            help='issue id(s) to delte',
+                            default=[],
+                            required=True,
+                            action='append')
         option.set_defaults(func=issue_delete)
 
     def argument_general():
@@ -721,6 +757,7 @@ def argument_create():
     argument_create()
     argument_list()
     argument_resolve()
+    argument_delete()
     argument_general()
 
     return parser

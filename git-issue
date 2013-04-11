@@ -385,8 +385,11 @@ class Issue(dict):
                        'issue_created': created,
                        'issue_description': description}
 
-        tmpl =  Color.HEADER + Color.BOLD
-        tmpl += ISSUE_LIST_HEADER_TEMPLATE.format(**data_kwargs).center(80, '-')
+        header = ISSUE_LIST_HEADER_TEMPLATE.format(**data_kwargs)
+        header = header.center(80, '-')
+
+        tmpl = Color.HEADER + Color.BOLD
+        tmpl += header
         tmpl += '\n' + Color.END
         tmpl += ISSUE_LIST_DESCRIPTION_TEMPLATE.format(**data_kwargs) + "\n"
         tmpl += newline + "\n"
@@ -394,7 +397,7 @@ class Issue(dict):
         if short:
             return tmpl
 
-        tmpl += table_format.format(*keys)+ "\n"
+        tmpl += table_format.format(*keys) + "\n"
         tmpl += newline + "\n"
 
         # Grab the iterables up-front
@@ -553,7 +556,8 @@ def issue_create(args):
 
     if not issue_types:
         print(locale_msg.no_type_specified.format(TOKEN_TYPE))
-        print(locale_msg.no_type_default.format(TOKEN_TYPE, TOKEN_TYPE_DEFAULT))
+        print(locale_msg.no_type_default.format(TOKEN_TYPE,
+                                                TOKEN_TYPE_DEFAULT))
         issue_types = [TOKEN_TYPE_DEFAULT]
 
     # Create a new entry for the JSON pseudo-db
@@ -669,6 +673,7 @@ def issue_list(args):
         if not issue['resolved']:
             print(issue.as_string(args.short))
 
+
 def issue_manually_resolved(ids, commit):
     Git.branch_checkout(global_branch)
     resolved_branch = global_branch
@@ -694,7 +699,8 @@ def issue_manually_resolved(ids, commit):
         msg = RESOLVED_TEMPLATE.format(**resolved_kwargs)
         print(msg)
 
-        if input(locale_msg.ask_manual_commit).lower() == locale_msg.ask_commit_yes:
+        do_commit = input(locale_msg.ask_manual_commit).lower()
+        if do_commit == locale_msg.ask_commit_yes:
             issue['resolved'] = True
             issue['resolved_in'] = commit
             issue.update()
@@ -722,7 +728,6 @@ def issue_resolve(args):
     elif args.id and args.commit:
         return issue_manually_resolved(args.id, args.commit)
 
-
     # Verify that an issue list even exists
     Git.branch_checkout(ISSUE_BRANCH)
 
@@ -742,7 +747,6 @@ def issue_resolve(args):
             unresolved.append(issue)
 
     logger.debug('{} unresolved issues'.format(len(unresolved)))
-
 
     # Now check back into the last branch so we can read the logs
     Git.branch_checkout(global_branch)
@@ -902,7 +906,6 @@ def argument_create():
                                 help='include resolved issues',
                                 action='store_true')
 
-
         option.set_defaults(func=issue_list)
 
     def argument_resolve():
@@ -974,7 +977,7 @@ if __name__ == '__main__':
         sys.exit(locale_msg.no_head)
 
     global_branch = Git.branch()
-    global_is_dirty  = Git.branch_dirty()
+    global_is_dirty = Git.branch_dirty()
     if global_is_dirty:
         logger.debug('{} is dirty. Stashing.'.format(global_branch))
         Git.stash()

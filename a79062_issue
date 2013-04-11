@@ -1,0 +1,10 @@
+The current stashing mechanism is broken.
+
+Currently when git-issue stashes, it does it unconditional of the 
+branch actually being dirty. If a non-dirty branch stash pops a
+stash-stack, then it will apply the stash--this is bad.
+
+Type: bug
+Milestone: initial-release
+Tag: release-blocker
+Assign: justinvh@gmail.com

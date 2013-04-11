@@ -41,7 +41,8 @@ TOKEN_MILESTONE_LENGTH = len(TOKEN_MILESTONE)
 # The issue template is written to a temporary file and is invoked by the
 # user's EDITOR to create a new issue.
 ISSUE_TEMPLATE = """
-# Anything below this line will be ignored.  # The ideal structure of a message looks like:
+# Anything below this line will be ignored.
+# The ideal structure of a message looks like:
 #
 #  Capitalized, short (50 chars or less) summary
 #
@@ -84,10 +85,16 @@ STRINGS = {
     'issue_created': ('created issue {issue_hash} on branch '
                         '{issue_branch} at commit {issue_commit}'),
     'no_issues': 'fatal: no issues have been created',
+    'bad_resolve_args': ('fatal: must specify both --id and --commit '
+                         'together to resolve an issue.'),
+    'no_commit_exists': 'fatal: commit does not exist',
+    'issue_manually_resolved': ('Issue {unique_id} was manually resolved '
+                                'in {resolved_in}'),
     'bad_resolve': 'Failed to find #{issue_hash} as seen in {resolved_commit}',
     'no_resolve': 'fatal: no issues could be resolved',
     'tag_resolved': 'tag-{issue_hash}-resolved',
     'tag_created': 'Creating tag {tag} at {commit}',
+    'ask_manual_commit': 'Do you want to mark this issue resolved (y/n) ',
     'ask_commit': 'Do you want to continue (y/n) ',
     'ask_commit_yes': 'y',
     'ask_delete': 'Do you want to delete this issue (y/n) ',
@@ -164,6 +171,9 @@ class Git:
     def fetch_log_by_commit(commit, message_only=False):
         args = ('--no-pager', 'show', '--name-only', commit)
         message = Git.command(*args)
+        if 'fatal' in message:
+            logger.debug('bad commit log: {}'.format(commit))
+            return None
         if message_only:
             return message[4:]
         return message
@@ -383,6 +393,8 @@ def issue_create(args):
     current_branch = Git.branch()
     current_commit = Git.commit()
 
+    print(current_branch, current_commit)
+
     # We expect EDITOR to be in the environment, but if it is not then
     # they get to deal with Vim, but we sleep for 2-seconds so the user
     # can at least see the problem.
@@ -400,11 +412,11 @@ def issue_create(args):
     # Now we generate a 6-value ASCII string. urandom does use random for
     # seeding its values, so it is technically pseudo-random.
     unique_issue_id = binascii.b2a_hex(os.urandom(3)).decode('utf-8')
-    unique_issue_id += '_issue'
+    unique_issue_filename = unique_issue_id + '_issue'
 
     # Write the issue template so it is ready when the user's editor
     # invokes the file.
-    issue_file = os.sep.join([issue_dir, unique_issue_id])
+    issue_file = os.sep.join([issue_dir, unique_issue_filename])
     with open(issue_file, 'w') as issue:
         issue.write(ISSUE_TEMPLATE)
 
@@ -467,11 +479,19 @@ def issue_create(args):
              'resolved_in': False,
              'resolved': False}
 
+<<<<<<< Updated upstream
     logger.info(issue)
 
     json_output = json.dumps(issue, indent=4)
     with open('{}_issue.json'.format(unique_issue_id), 'wb') as f:
         f.write(json_output.encode('utf-8'))
+=======
+    print('Creating issue: ', issue)
+
+    json.dump(issue,
+              open('{}.issue.json'.format(unique_issue_id), 'wb'),
+              indent=4)
+>>>>>>> Stashed changes
 
     # The commit for this entry will match the issue.
     kwargs = {'issue_hash': unique_issue_id,
@@ -497,7 +517,6 @@ def issue_list(args):
 
     # Create an intersection of the results
     available = set()
-    resolved_set = set()
     id_set = set()
     tag_set = set()
     milestone_set = set()
@@ -507,10 +526,6 @@ def issue_list(args):
     for i, issue in enumerate(yield_issues()):
         id_to_issue[i] = issue
         available.add(i)
-
-        # Gather all the resolved issues
-        if args.resolved and issue['resolved']:
-            resolved_set.add(i)
 
         # Gather all the issues specified by ID
         ids = args.id
@@ -539,8 +554,8 @@ def issue_list(args):
                     continue
                 break
 
-    mapping = ((args.resolved, resolved_set), (args.id, id_set),
-               (args.tag, tag_set), (args.milestone, milestone_set),
+    mapping = ((args.id, id_set), (args.tag, tag_set),
+               (args.milestone, milestone_set),
                (args.assign, assigned_set))
     distinct = [s for e, s in mapping if e]
 
@@ -554,16 +569,75 @@ def issue_list(args):
         return
 
     for issue in results:
-        print(issue)
+        if args.include_resolved:
+            print(issue)
+            continue
+
+        if args.only_resolved:
+            if issue['resolved']:
+                print(issue)
+            continue
+
+        if not issue['resolved']:
+            print(issue)
+
+def issue_manually_resolved(ids, commit):
+    Git.branch_checkout(global_branch)
+    resolved_branch = global_branch
+    resolved_log = Git.fetch_log_by_commit(commit, message_only=True)
+    resolved_log = '\n'.join([l.strip() for l in resolved_log])
+    if not resolved_log:
+        sys.exit(locale_msg.no_commit_exists)
+
+    Git.branch_checkout(ISSUE_BRANCH)
+    resolved = []
+    for issue in yield_issues(ids):
+        if issue['resolved']:
+            continue
+        issue_commit = issue['commit']
+        issue_branch = issue['branch']
+        issue_description = issue['description']
+        resolved_kwargs = {'issue_hash': issue['unique_id'],
+                           'issue_commit': issue_commit[:8],
+                           'issue_branch': issue_branch,
+                           'issue_description': issue_description,
+                           'resolved_commit': commit[:8],
+                           'resolved_branch': resolved_branch,
+                           'resolved_log': resolved_log}
+        msg = RESOLVED_TEMPLATE.format(**resolved_kwargs)
+        print(msg)
+
+        if input(locale_msg.ask_manual_commit).lower() == locale_msg.ask_commit_yes:
+            issue['resolved'] = True
+            issue['resolved_in'] = commit
+            issue.update()
+            msg = locale_msg.issue_manually_resolved.format(**issue)
+            Git.commit(Git.repository(), from_message=msg)
+            issue['issue_hash'] = issue['unique_id']
+            resolved.append(issue)
+
+    Git.branch_checkout(global_branch)
+    for resolve in resolved:
+        tag = locale_msg.tag_resolved.format(**resolve)
+        resolved = issue['resolved_in']
+        tag_created_kwargs = {'tag': tag, 'commit': resolved}
+        print(locale_msg.tag_created.format(**tag_created_kwargs))
+        Git.tag(tag, resolved)
 
 
 def issue_resolve(args):
     '''Resolves created issues.
 
     '''
+    issue_was_resolved = False
+    if (args.id and not args.commit) or (not args.id and args.commit):
+        sys.exit(locale_msg.bad_resolve_args)
+    elif args.id and args.commit:
+        return issue_manually_resolved(args.id, args.commit)
+
+
     # Verify that an issue list even exists
     Git.branch_checkout(ISSUE_BRANCH)
-    issue_was_resolved = False
 
     # Load the issues
     unresolved = []
@@ -727,10 +801,16 @@ def argument_create():
                             help='short list',
                             action='store_true')
 
-        option.add_argument('-r', '--resolved',
+        option.add_argument('-r', '--only-resolved',
                             default=False,
                             help='list only resolved issues',
                             action='store_true')
+
+        option.add_argument('-R', '--include-resolved',
+                                default=False,
+                                help='include resolved issues',
+                                action='store_true')
+
 
         option.set_defaults(func=issue_list)
 
@@ -739,6 +819,16 @@ def argument_create():
 
         '''
         option = cmd.add_parser('resolve', help='resolve an issue')
+
+        option.add_argument('-i', '--id',
+                            help='resolve these issues ids',
+                            default=[],
+                            action='append')
+
+        option.add_argument('-c', '--commit',
+                            help='resolve with this commit',
+                            action='store')
+
         option.set_defaults(func=issue_resolve)
 
     def argument_delete():

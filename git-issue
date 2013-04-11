@@ -11,11 +11,31 @@ try:
 except NameError:
     pass
 
+
 def git_getconfig(key, default=None):
     try:
         return subprocess.check_output(['git', 'config', key])
     except subprocess.CalledProcessError:
         return default
+
+
+class Color:
+    if git_getconfig('issue.usecolors', 'yes') == 'yes':
+        BOLD = '\033[1m'
+        HEADER = '\033[95m'
+        OKBLUE = '\033[94m'
+        OKGREEN = '\033[92m'
+        WARNING = '\033[93m'
+        FAIL = '\033[91m'
+        END = '\033[0m'
+    else:
+        BOLD = ''
+        HEADER = ''
+        OKBLUE = ''
+        OKGREEN = ''
+        WARNING = ''
+        FAIL = ''
+        END = ''
 
 # You are free to edit any of the following to match your respective
 # language, issue-feel, and so on.
@@ -315,8 +335,8 @@ class Issue(dict):
                    'branch', 'resolved', 'created', 'resolved_in']
         key_size = len(list(data.keys())) - len(ignored)
         table_format = '{:^19} ' * key_size
-        newline = '-' * 20 * key_size
-        bold_newline = '-' * 20 * key_size
+        newline = '*' * 20 * key_size
+        bold_newline = '*' * 20 * key_size
 
         # Remove the description from the key-list
         keys = list(data.keys())
@@ -345,8 +365,9 @@ class Issue(dict):
                        'issue_created': created,
                        'issue_description': description}
 
-        tmpl = newline + "\n"
-        tmpl =  ISSUE_LIST_HEADER_TEMPLATE.format(**data_kwargs) + "\n"
+        tmpl =  Color.HEADER + Color.BOLD
+        tmpl += ISSUE_LIST_HEADER_TEMPLATE.format(**data_kwargs).center(80, '-')
+        tmpl += '\n' + Color.END
         tmpl += ISSUE_LIST_DESCRIPTION_TEMPLATE.format(**data_kwargs) + "\n"
         tmpl += newline + "\n"
 

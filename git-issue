@@ -43,6 +43,9 @@ class Color:
 # The branch that is created to store the issues.
 ISSUE_BRANCH = git_getconfig('issue.branch', 'git-issues')
 
+# Automatic pulling and updates of the git-issue branch
+ISSUE_AUTO_PULL = git_getconfig('issue.autopull', 'yes') == 'yes'
+
 # When EDITOR is not specified in the environment, this is invoked:
 EDITOR_ENVIRONMENT = git_getconfig('issue.editor.environment', 'EDITOR')
 DEFAULT_EDITOR = git_getconfig('issue.editor.path', 'vim')
@@ -943,6 +946,14 @@ def argument_create():
                             action='store_true',
                             help='enable debugging output')
 
+        parser.add_argument('-p', '--pull',
+                            action='store_true',
+                            help='force a pull on the git-issues branch.')
+
+        parser.add_argument('-P', '--no-pull',
+                            action='store_true',
+                            help='do not pull on the git-issues branch.')
+
     argument_create()
     argument_list()
     argument_resolve()
@@ -987,7 +998,9 @@ if __name__ == '__main__':
                 Git.rm(".", recursive=True)
                 Git.commit(empty=True, from_message='Initial commit.')
         Git.branch_checkout(ISSUE_BRANCH)
-        Git.pull()
+        if not args.no_pull and (ISSUE_AUTO_PULL or args.pull):
+            logger.debug('pull requested')
+            Git.pull()
         args.func(args)
     except AttributeError as e:
         logger.exception(e)

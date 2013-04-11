@@ -28,6 +28,11 @@ by simply:
     $ cd git-issue
     $ env PATH=$PWD:$PATH git issue list
 
+`git-issues` will automatically checkout the remote git-issues branch
+and keep it up to date by doing a pull on any command. If you feel that
+this is too noisy you can change: `git config issue.autopull no` or
+just pass `--no-pull` before the action: `git issue --no-pull list`.
+
 
 On First Run
 ------------
@@ -70,14 +75,16 @@ You can adjust any of these parameters by using `git config parameter value`:
 
 | Parameter                | Default    |
 | ------------------------ | ---------- |
-| issue.issuelist          | issues     |
 | issue.branch             | git-issues |
+| issue.autopull           | yes        |
 | issue.editor.environment | EDITOR     |
 | issue.editor.path        | vim        |
 | issue.tokens.assign      | assign:    |
 | issue.tokens.tag         | tags:      |
 | issue.tokens.milestone   | milestone: |
 | issue.tokens.fixes       | fixes:     |
+| issue.tokens.type        | type:      |
+| issue.defaults.type      | bug        |
 
 
 Usage

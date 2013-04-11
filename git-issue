@@ -373,6 +373,8 @@ def issue_create(args):
              'resolved_in': False,
              'resolved': False}
 
+    logger.info(issue)
+
     json.dump(issue,
               open('{}.issue.json'.format(unique_issue_id), 'wb'),
               indent=4)
@@ -410,7 +412,7 @@ def issue_list(args):
 
     for i, issue in enumerate(yield_issues()):
         id_to_issue[i] = issue
-        available.append(i)
+        available.add(i)
 
         # Gather all the resolved issues
         if args.resolved and issue['resolved']:
@@ -443,12 +445,16 @@ def issue_list(args):
                     continue
                 break
 
-    unioned = [resolved_set, id_set, tag_set, milestone_set, assigned_set]
+    mapping = ((args.resolved, resolved_set), (args.id, id_set),
+               (args.tag, tag_set), (args.milestone, milestone_set),
+               (args.assign, assigned_set))
+    distinct = [s for e, s in mapping if e]
+
     intersection = available
-    for result in unioned:
+    for result in distinct:
         intersection &= result
 
-    results = [id_to_issue[S['unique_id']] for S in intersection]
+    results = [id_to_issue[s] for s in intersection]
 
     if not results:
         return
@@ -461,7 +467,7 @@ def issue_list(args):
     newline = '-' * 20 * key_size
 
     # Remove the description from the key-list
-    keys = list(available[0].keys())
+    keys = list(results[0].keys())
     for ignore in ignored:
         keys.remove(ignore)
 

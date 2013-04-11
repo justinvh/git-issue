@@ -1,0 +1,9 @@
+git-issue must support amending.
+
+Currently git-issue does not support amending created commits.
+This will cause a bunch of headaches with end-users. The current
+solution is to delete the commit and then recreate it.
+
+Milestone: initial-release
+Tag: amending release-blocker
+Assign: justinvh@gmail.com

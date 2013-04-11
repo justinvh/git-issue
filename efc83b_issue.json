@@ -1,0 +1,16 @@
+{
+    "assigned": [
+        " justinvh@gmail.com"
+    ], 
+    "resolved_in": false, 
+    "milestones": [
+        "initial-release"
+    ], 
+    "description": "git-issue must support amending.", 
+    "branch": "master", 
+    "created": "1365686825", 
+    "resolved": false, 
+    "commit": "08b683ad0bad651f778c277f2d95e31b7b05af15", 
+    "tags": [], 
+    "unique_id": "efc83b"
+}

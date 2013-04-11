@@ -29,7 +29,7 @@ DEFAULT_EDITOR = git_getconfig('issue.editor.path', 'vim')
 
 # The tokens are the values searched for the leading-lines in a message.
 TOKEN_ASSIGN = git_getconfig('issue.tokens.assign', 'assign:')
-TOKEN_TAG = git_getconfig('issue.tokens.tag', 'tags:')
+TOKEN_TAG = git_getconfig('issue.tokens.tag', 'tag:')
 TOKEN_MILESTONE = git_getconfig('issue.tokens.milestone', 'milestone:')
 TOKEN_FIXES = git_getconfig('issue.tokens.fixes', 'fixes:')
 
@@ -46,17 +46,15 @@ ISSUE_TEMPLATE = """
 #
 #  Capitalized, short (50 chars or less) summary
 #
-#   Milestone: milestone1 milestone2
+#  More detailed explanatory text, if necessary.  Wrap it to about 72
+#  characters or so.  In some contexts, the first line is treated as the
+#  subject of an email and the rest of the text as the body.  The blank
+#  line separating the summary from the body is critical (unless you omit
+#  the body entirely);
 #
-#   Tag: tag1 tag2 tag3
-#
-#   Assign: Justin Bruce Van Horne <justinvh@gmail.com>
-#
-#   More detailed explanatory text, if necessary.  Wrap it to about 72
-#   characters or so.  In some contexts, the first line is treated as the
-#   subject of an email and the rest of the text as the body.  The blank
-#   line separating the summary from the body is critical (unless you omit
-#   the body entirely);
+#  Milestone: milestone1 milestone2
+#  Tag: tag1 tag2 tag3
+#  Assign: Justin Bruce Van Horne <justinvh@gmail.com>
 """
 
 ISSUE_LIST_DESCRIPTION_TEMPLATE = '{issue_description}'
@@ -118,6 +116,7 @@ import logging
 import sys
 import json
 import binascii
+import tempfile
 
 try:
     from itertools import zip_longest
@@ -304,7 +303,7 @@ class Issue(dict):
 
         # Create a structure for tabulating the data
         ignored = ['description', 'unique_id', 'commit',
-                'branch', 'resolved', 'created', 'resolved_in']
+                   'branch', 'resolved', 'created', 'resolved_in']
         key_size = len(list(data.keys())) - len(ignored)
         table_format = '{:^19} ' * key_size
         newline = '-' * 20 * key_size
@@ -351,10 +350,7 @@ class Issue(dict):
 
         # Break each row for the milestones, tags, and assigned
         for m, t, a in zipped:
-            data['milestones'] = m
-            data['tags'] = t
-            data['assigned'] = a[:16] + ('...' if len(a) > 16 else '')
-            tmpl += table_format.format(*list(data.values())) + "\n"
+            tmpl += table_format.format(m, t, a) + "\n"
 
         tmpl += newline + "\n\n"
         return tmpl
@@ -393,8 +389,6 @@ def issue_create(args):
     current_branch = Git.branch()
     current_commit = Git.commit()
 
-    print(current_branch, current_commit)
-
     # We expect EDITOR to be in the environment, but if it is not then
     # they get to deal with Vim, but we sleep for 2-seconds so the user
     # can at least see the problem.
@@ -405,7 +399,6 @@ def issue_create(args):
         time.sleep(2)
 
     # At this point the git-issues repository already exists
-    Git.branch_checkout(ISSUE_BRANCH)
     repository_dir = Git.repository()
     issue_dir = repository_dir
 
@@ -417,14 +410,26 @@ def issue_create(args):
     # Write the issue template so it is ready when the user's editor
     # invokes the file.
     issue_file = os.sep.join([issue_dir, unique_issue_filename])
-    with open(issue_file, 'w') as issue:
-        issue.write(ISSUE_TEMPLATE)
+    temp = tempfile.NamedTemporaryFile(delete=False)
+    temp.write(ISSUE_TEMPLATE)
+    temp.close()
 
     # Invoke the editor and open the issue file
-    ret = subprocess.call([os.environ.get(EDITOR_ENVIRONMENT), issue_file])
+    ret = subprocess.call([os.environ.get(EDITOR_ENVIRONMENT), temp.name])
     if ret != 0:
+        os.unlink(temp.name)
         print(locale_msg.empty_issue)
         return
+
+    # Now checkout into the issue branch and write the changes
+    # We could use shutils, but too much red on the doc-page
+    Git.branch_checkout(ISSUE_BRANCH)
+    with open(issue_file, 'w') as f:
+        with open(temp.name) as temp:
+            f.write(temp.read())
+
+    # unlink the temporary file
+    os.unlink(temp.name)
 
     # Since we have this many-many relationship between issues and milestones,
     # tags, and assigned-list, we have to fan-out the values up-front

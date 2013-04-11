@@ -17,6 +17,18 @@ Quick Run Down
     git issue resolve
     git issue delete
 
+
+Try it out
+==========
+
+`git-issue` uses itself for issue tracking. You can give it a whirl
+by simply:
+
+    $ git clone git://github.com/justinvh/git-issue.git
+    $ cd git-issue
+    $ env PATH=$PWD:$PATH git issue list
+
+
 On First Run
 ------------
 On your first run of git issue -- that is any action -- it will search across

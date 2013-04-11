@@ -155,6 +155,7 @@ logger = logging.getLogger(logger_name)
 logger.setLevel(logging.INFO)
 
 global_branch = None
+global_is_dirty = False
 
 
 class Git:
@@ -218,6 +219,14 @@ class Git:
     @staticmethod
     def branch():
         return Git.command('rev-parse', '--abbrev-ref', 'HEAD')[0]
+
+    @staticmethod
+    def branch_dirty():
+        try:
+            Git.command_notry('diff-index', '--quiet', 'HEAD')
+            return False
+        except subprocess.CalledProcessError:
+            return True
 
     @staticmethod
     def branch_create(name, orphan=False):
@@ -305,6 +314,14 @@ class Git:
             return msg.splitlines()
         except subprocess.CalledProcessError as e:
             return e.output
+
+    @staticmethod
+    def command_notry(*args, **kwargs):
+        command = ['git'] + list(args)
+        logger.debug(' '.join(command))
+        msg = subprocess.check_output(command, stderr=subprocess.STDOUT)
+        msg = msg.decode('utf-8')
+        return msg.splitlines()
 
 
 class Issue(dict):
@@ -426,7 +443,9 @@ def yield_issues(filenames=None):
     if filenames is not None:
         iglobs = (glob.iglob('{}_issue.json'.format(fn)) for fn in filenames)
     for iglob in iglobs:
+        logger.debug('cycling iglob')
         for filename in iglob:
+            logger.debug('iglob: {}'.format(filename))
             try:
                 issue = Issue(filename)
             except ValueError as e:
@@ -662,11 +681,10 @@ def issue_manually_resolved(ids, commit):
             continue
         issue_commit = issue['commit']
         issue_branch = issue['branch']
-        issue_description = issue['description']
         resolved_kwargs = {'issue_hash': issue['unique_id'],
                            'issue_commit': issue_commit[:8],
                            'issue_branch': issue_branch,
-                           'issue_description': issue_description,
+                           'issue_description': issue.description,
                            'resolved_commit': commit[:8],
                            'resolved_branch': resolved_branch,
                            'resolved_log': resolved_log}
@@ -761,14 +779,13 @@ def issue_resolve(args):
             issue_was_resolved = True
             issue_commit = issue['commit']
             issue_branch = issue['branch']
-            issue_description = issue['description']
             issue['resolved'] = True
             issue['resolved_in'] = resolved_commit
             resolved_log = '\n'.join([l.strip() for l in log])
             resolved_kwargs = {'issue_hash': issue_hash,
                                'issue_commit': issue_commit[:8],
                                'issue_branch': issue_branch,
-                               'issue_description': issue_description,
+                               'issue_description': issue.description,
                                'resolved_commit': resolved_commit[:8],
                                'resolved_branch': resolved_branch,
                                'resolved_log': resolved_log}
@@ -945,8 +962,11 @@ if __name__ == '__main__':
     if not Git.commit_exists():
         sys.exit(locale_msg.no_head)
 
-    Git.stash()
     global_branch = Git.branch()
+    global_is_dirty  = Git.branch_dirty()
+    if global_is_dirty:
+        logger.debug('{} is dirty. Stashing.'.format(global_branch))
+        Git.stash()
     logger.debug('Current branch is {}'.format(global_branch))
 
     try:
@@ -974,4 +994,6 @@ if __name__ == '__main__':
         parser.print_help()
     finally:
         Git.branch_checkout(global_branch)
-        Git.stash_pop()
+        if global_is_dirty:
+            logger.debug('{} was dirty. Popping.'.format(global_branch))
+            Git.stash_pop()

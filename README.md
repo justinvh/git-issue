@@ -110,17 +110,16 @@ assignment, and finally a detailed explanation of the issue.
 
     Capitalized, short (50 chars or less) summary
 
-    Milestone: milestone1 milestone2
-
-    Tag: tag1 tag2 tag3
-
-    Assign: Justin Bruce Van Horne <justinvh@gmail.com>
-
     More detailed explanatory text, if necessary.  Wrap it to about 72
     characters or so.  In some contexts, the first line is treated as the
     subject of an email and the rest of the text as the body.  The blank
     line separating the summary from the body is critical (unless you omit
     the body entirely);
+
+    Type: bug
+    Milestone: milestone1 milestone2
+    Tag: tag1 tag2 tag3
+    Assign: Justin Bruce Van Horne <justinvh@gmail.com>
 
 
 Small Structure
@@ -132,19 +131,20 @@ assignment of the issue.
 
     Capitalized, short (50 chars or less) summary
 
+    Type: bug
     Milestone: milestone1 milestone2
-
     Tags: tag1 tag2 tag3
-
     Assign: Justin Bruce Van Horne <justinvh@gmail.com>
 
 
 Minimal Structure
 --------------
 
-The minimal structure is just a summary.
+The minimal structure is just a summary and an issue type.
 
     Capitalized, short (50 chars or less) summary
+
+    Type: bug
 
 
 If you don't follow this structure, then your issue will be rejected. If you 
@@ -154,6 +154,8 @@ it rather than send PULL requests to fit arbitrary formats.
 
 Assigning an Issue
 --------------------------------
+
+*WARNING*: This isn't implemented yet.
 
 You can assign an issue to an individual by specifying either their git
 user and email or alternatively just their email. Either way an email needs
@@ -174,6 +176,8 @@ Multiple users can be specified at the command line as well.
 
 Editing an Issue
 ----------------
+
+*WARNING*: This isn't implemented yet.
 
 You can edit issues from the command-line or just plainly edit it all-together.
 This will re-prompt you with your `$EDITOR`

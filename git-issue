@@ -479,19 +479,9 @@ def issue_create(args):
              'resolved_in': False,
              'resolved': False}
 
-<<<<<<< Updated upstream
-    logger.info(issue)
-
     json_output = json.dumps(issue, indent=4)
     with open('{}_issue.json'.format(unique_issue_id), 'wb') as f:
         f.write(json_output.encode('utf-8'))
-=======
-    print('Creating issue: ', issue)
-
-    json.dump(issue,
-              open('{}.issue.json'.format(unique_issue_id), 'wb'),
-              indent=4)
->>>>>>> Stashed changes
 
     # The commit for this entry will match the issue.
     kwargs = {'issue_hash': unique_issue_id,

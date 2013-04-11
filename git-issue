@@ -6,6 +6,11 @@ from __future__ import unicode_literals
 from collections import namedtuple
 import subprocess
 
+try:
+    input = raw_input
+except NameError:
+    pass
+
 def git_getconfig(key, default=None):
     try:
         return subprocess.check_output(['git', 'config', key])
@@ -362,7 +367,12 @@ def yield_issues(filenames=None):
         iglobs = (glob.iglob('{}_issue.json'.format(fn)) for fn in filenames)
     for iglob in iglobs:
         for filename in iglob:
-            yield Issue(filename)
+            try:
+                issue = Issue(filename)
+            except ValueError as e:
+                logger.debug('Skipping {}: {}'.format(filename, e))
+                continue
+            yield issue
 
 
 def issue_create(args):
@@ -389,11 +399,12 @@ def issue_create(args):
 
     # Now we generate a 6-value ASCII string. urandom does use random for
     # seeding its values, so it is technically pseudo-random.
-    unique_issue_id = binascii.b2a_hex(os.urandom(3))
+    unique_issue_id = binascii.b2a_hex(os.urandom(3)).decode('utf-8')
+    unique_issue_id += '_issue'
 
     # Write the issue template so it is ready when the user's editor
     # invokes the file.
-    issue_file = os.sep.join([issue_dir, unique_issue_id + '_issue'])
+    issue_file = os.sep.join([issue_dir, unique_issue_id])
     with open(issue_file, 'w') as issue:
         issue.write(ISSUE_TEMPLATE)
 
@@ -458,9 +469,9 @@ def issue_create(args):
 
     logger.info(issue)
 
-    json.dump(issue,
-              open('{}_issue.json'.format(unique_issue_id), 'wb'),
-              indent=4)
+    json_output = json.dumps(issue, indent=4)
+    with open('{}_issue.json'.format(unique_issue_id), 'wb') as f:
+        f.write(json_output.encode('utf-8'))
 
     # The commit for this entry will match the issue.
     kwargs = {'issue_hash': unique_issue_id,
@@ -630,7 +641,7 @@ def issue_resolve(args):
         sys.exit(locale_msg.no_resolve)
 
     # Ask if we should commit our changes
-    if raw_input(locale_msg.ask_commit).lower() == locale_msg.ask_commit_yes:
+    if input(locale_msg.ask_commit).lower() == locale_msg.ask_commit_yes:
         Git.branch_checkout(ISSUE_BRANCH)
         for msg, resolved_kwargs, issue in updates:
             issue.update()
@@ -658,7 +669,7 @@ def issue_delete(args):
     for issue in yield_issues(args.id):
         not_found = False
         print(issue)
-        can_delete = raw_input(locale_msg.ask_delete).lower()
+        can_delete = input(locale_msg.ask_delete).lower()
         if can_delete == locale_msg.ask_delete_yes:
             issue.delete()
             Git.commit_all(locale_msg.delete_commit.format(issue['unique_id']))

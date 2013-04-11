@@ -30,12 +30,15 @@ DEFAULT_EDITOR = git_getconfig('issue.editor.path', 'vim')
 # The tokens are the values searched for the leading-lines in a message.
 TOKEN_ASSIGN = git_getconfig('issue.tokens.assign', 'assign:')
 TOKEN_TAG = git_getconfig('issue.tokens.tag', 'tag:')
+TOKEN_TYPE = git_getconfig('issue.tokens.type', 'type:')
+TOKEN_TYPE_DEFAULT = git_getconfig('issue.defaults.type', 'bug')
 TOKEN_MILESTONE = git_getconfig('issue.tokens.milestone', 'milestone:')
 TOKEN_FIXES = git_getconfig('issue.tokens.fixes', 'fixes:')
 
 # We need these values so we can split() correctly.
 TOKEN_ASSIGN_LENGTH = len(TOKEN_ASSIGN)
 TOKEN_TAG_LENGTH = len(TOKEN_TAG)
+TOKEN_TYPE_LENGTH = len(TOKEN_TYPE)
 TOKEN_MILESTONE_LENGTH = len(TOKEN_MILESTONE)
 
 # The issue template is written to a temporary file and is invoked by the
@@ -52,6 +55,7 @@ ISSUE_TEMPLATE = """
 #  line separating the summary from the body is critical (unless you omit
 #  the body entirely);
 #
+#  Type: bug
 #  Milestone: milestone1 milestone2
 #  Tag: tag1 tag2 tag3
 #  Assign: Justin Bruce Van Horne <justinvh@gmail.com>
@@ -80,6 +84,8 @@ STRINGS = {
     'bad_editor': '{} is not set in your environment. Please set it.',
     'default_editor': 'Defaulting to {}',
     'empty_issue': 'fatal: aborting issue due to empty issue message',
+    'no_type_specified': 'warning: you did not specify a "{}"-attribute.',
+    'no_type_default': 'warning: defaulting "{}" to "{}".',
     'issue_created': ('created issue {issue_hash} on branch '
                         '{issue_branch} at commit {issue_commit}'),
     'no_issues': 'fatal: no issues have been created',
@@ -333,10 +339,12 @@ class Issue(dict):
         milestones = data['milestones']
         tags = data['tags']
         assigned = data['assigned']
+        types = data['type']
 
         # The data will be displayed in multiple-rows, so we will need to
         # fill the empty columns with a placeholder
-        zipped = list(zip_longest(milestones, tags, assigned, fillvalue='-'))
+        zip_args = (milestones, tags, assigned, types)
+        zipped = list(zip_longest(*zip_args, fillvalue='-'))
 
         # In the case we don't have tags, milestones, or an assigned user
         # So, just fill with the placeholder text
@@ -344,13 +352,14 @@ class Issue(dict):
             data['milestones'] = '-'
             data['tags'] = '-'
             data['assigned'] = '-'
+            data['type'] = '-'
             tmpl += table_format.format(*list(data.values())) + "\n"
             tmpl += newline + "\n\n"
             return tmpl
 
         # Break each row for the milestones, tags, and assigned
-        for m, t, a in zipped:
-            tmpl += table_format.format(m, t, a) + "\n"
+        for m, t, a, y in zipped:
+            tmpl += table_format.format(m, t, a, y) + "\n"
 
         tmpl += newline + "\n\n"
         return tmpl
@@ -437,6 +446,7 @@ def issue_create(args):
     milestones = []
     tags = []
     assigned = []
+    issue_types = []
 
     # At this point the user saved and their EDITOR wrote out a value to
     # the issue file, we need to verify that it is not empty and then
@@ -464,12 +474,20 @@ def issue_create(args):
                 tags = line[TOKEN_TAG_LENGTH:].split()
             elif line.startswith(TOKEN_ASSIGN):
                 assigned.append(line[TOKEN_ASSIGN_LENGTH:])
+            elif line.startswith(TOKEN_TYPE):
+                issue_types = line[TOKEN_TYPE_LENGTH:].split()
+
         valid_issue = '\n'.join(valid_lines)
 
     # Write the cleaned up issue to disk.
     issue_filename = issue_file
     with open(issue_file, 'w') as issue:
         issue.write(valid_issue)
+
+    if not issue_types:
+        print(locale_msg.no_type_specified.format(TOKEN_TYPE))
+        print(locale_msg.no_type_default.format(TOKEN_TYPE, TOKEN_TYPE_DEFAULT))
+        issue_types = [TOKEN_TYPE_DEFAULT]
 
     # Create a new entry for the JSON pseudo-db
     created = int(time.time())
@@ -479,6 +497,7 @@ def issue_create(args):
              'created': str(created),
              'milestones': milestones,
              'tags': tags,
+             'type': issue_types,
              'description': valid_issue[:80].split('\n')[0],
              'assigned': assigned,
              'resolved_in': False,
@@ -516,6 +535,7 @@ def issue_list(args):
     tag_set = set()
     milestone_set = set()
     assigned_set = set()
+    type_set = set()
     id_to_issue = {}
 
     for i, issue in enumerate(yield_issues()):
@@ -529,8 +549,13 @@ def issue_list(args):
 
         # Gather all the issues specified with a certain tag
         tags = set(args.tag)
-        if tags and set(issue['tags'] & tags):
+        if tags and set(issue['tags']) & tags:
             tag_set.add(i)
+
+        # Gather all the issues specified with a certain type
+        types = set(args.type)
+        if types and set(issue['type']) & types:
+            type_set.add(i)
 
         # Gather all the issues specified with a certain milestone
         milestone = set(args.milestone)
@@ -551,7 +576,8 @@ def issue_list(args):
 
     mapping = ((args.id, id_set), (args.tag, tag_set),
                (args.milestone, milestone_set),
-               (args.assign, assigned_set))
+               (args.assign, assigned_set),
+               (args.type, type_set))
     distinct = [s for e, s in mapping if e]
 
     intersection = available
@@ -784,6 +810,11 @@ def argument_create():
 
         option.add_argument('-m', '--milestone',
                             help='list only by a certain milestone',
+                            default=[],
+                            action='append')
+
+        option.add_argument('-y', '--type',
+                            help='list only by a certain type',
                             default=[],
                             action='append')
 

@@ -291,6 +291,9 @@ class Issue(dict):
     def __init__(self, filename):
         logger.debug('Loading issue descriptor from {}'.format(filename))
         self.filename = filename
+        issue_text, ext = os.path.splitext(self.filename)
+        with open(issue_text) as text:
+            self.description = text.read()
         dict.__init__(self, json.load(open(filename)))
 
     def update(self, filename=None):
@@ -302,7 +305,7 @@ class Issue(dict):
         Git.rm(issue_text)
         Git.rm(self.filename)
 
-    def __str__(self):
+    def as_string(self, short=False):
         # Store the current data so we can print it on multiple
         # rows, but under the same issue.
         data = self.copy()
@@ -313,6 +316,7 @@ class Issue(dict):
         key_size = len(list(data.keys())) - len(ignored)
         table_format = '{:^19} ' * key_size
         newline = '-' * 20 * key_size
+        bold_newline = '-' * 20 * key_size
 
         # Remove the description from the key-list
         keys = list(data.keys())
@@ -322,16 +326,33 @@ class Issue(dict):
         resolved_text = 'resolved' if data['resolved'] else 'unresolved'
         created = float(data['created'])
         created = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(created))
+        description = self.description
+        if short:
+            description = ' '.join(description[:77].splitlines())
+            description += '...'
+        else:
+            lines = []
+            ignore = (TOKEN_MILESTONE, TOKEN_ASSIGN, TOKEN_TAG, TOKEN_TYPE)
+            for line in description.splitlines():
+                if not line.lower().startswith(ignore):
+                    lines.append(line)
+            description = '\n'.join(lines)
+
         data_kwargs = {'issue_hash': data['unique_id'],
                        'issue_resolved': resolved_text,
                        'issue_branch': data['branch'],
                        'issue_commit': data['commit'][:5],
                        'issue_created': created,
-                       'issue_description': data['description']}
+                       'issue_description': description}
 
+        tmpl = newline + "\n"
         tmpl =  ISSUE_LIST_HEADER_TEMPLATE.format(**data_kwargs) + "\n"
         tmpl += ISSUE_LIST_DESCRIPTION_TEMPLATE.format(**data_kwargs) + "\n"
         tmpl += newline + "\n"
+
+        if short:
+            return tmpl
+
         tmpl += table_format.format(*keys)+ "\n"
         tmpl += newline + "\n"
 
@@ -361,8 +382,11 @@ class Issue(dict):
         for m, t, a, y in zipped:
             tmpl += table_format.format(m, t, a, y) + "\n"
 
-        tmpl += newline + "\n\n"
+        tmpl += bold_newline + "\n"
         return tmpl
+
+    def __str__(self):
+        return self.as_string()
 
 
 def yield_lower(iterable):
@@ -591,16 +615,16 @@ def issue_list(args):
 
     for issue in results:
         if args.include_resolved:
-            print(issue)
+            print(issue.as_string(args.short))
             continue
 
         if args.only_resolved:
             if issue['resolved']:
-                print(issue)
+                print(issue.as_string(args.short))
             continue
 
         if not issue['resolved']:
-            print(issue)
+            print(issue.as_string(args.short))
 
 def issue_manually_resolved(ids, commit):
     Git.branch_checkout(global_branch)

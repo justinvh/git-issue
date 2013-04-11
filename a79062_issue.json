@@ -1,18 +1,19 @@
 {
     "assigned": [
         " justinvh@gmail.com"
-    ], 
-    "resolved_in": false, 
+    ],
+    "resolved_in": false,
     "milestones": [
         "initial-release"
-    ], 
-    "description": "The current stashing mechanism is broken.", 
-    "branch": "master", 
-    "created": "1365688438", 
-    "resolved": false, 
-    "commit": "549b9c437b867725a02b3233bbd00131cfc27e01", 
+    ],
+    "description": "The current stashing mechanism is broken.",
+    "branch": "master",
+    "created": "1365688438",
+    "resolved": false,
+    "commit": "549b9c437b867725a02b3233bbd00131cfc27e01",
+    "type": ["bug"],
     "tags": [
         "release-blocker"
-    ], 
+    ],
     "unique_id": "a79062"
 }
